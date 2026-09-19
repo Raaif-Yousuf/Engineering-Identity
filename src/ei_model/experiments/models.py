@@ -167,9 +167,10 @@ def original_ann_spec(seed: int = 42, epochs: int | None = None) -> ModelSpec:
     A smaller `epochs` is only for fast tests -- real runs must leave it unset
     per the spec ("the original ANN, unchanged hyperparameters").
     """
-    from ei_model.models import original_ann as oann
     from sklearn.impute import SimpleImputer
     from sklearn.preprocessing import StandardScaler
+
+    from ei_model.models import original_ann as oann
 
     run_epochs = epochs if epochs is not None else oann.EPOCHS
 
@@ -271,12 +272,17 @@ def stacking_spec(seed: int = 0) -> ModelSpec:
 def crowd_spec(seed: int = 0, replications: int = 10) -> ModelSpec:
     """Wisdom-of-the-crowd model, once `ei_model.models.crowd` lands on main.
 
-    Not editable here (owned by a parallel worker); this only wires it in.
-    `replications` defaults to 10 rather than the MATLAB original's 100 to
-    keep this CPU run sane -- pass 100 explicitly once timing allows.
+    Not editable here (owned by a parallel worker); this only wires it in,
+    against the `CrowdANN(BaseEstimator, RegressorMixin)` sklearn-style API
+    (`n_replications`, `random_state`, `n_jobs`) that module exposes as of
+    its in-progress `feat/crowd-ann-model` branch. `replications` defaults to
+    10 rather than the MATLAB original's 100 to keep this CPU run sane --
+    pass 100 explicitly once timing allows. No external scaling: CrowdANN
+    does its own internal MapMinMax normalization, mirroring the MATLAB
+    original's `mapminmax`.
     """
     try:
-        from ei_model.models import crowd
+        from ei_model.models.crowd import CrowdANN
     except ImportError as exc:
         return ModelSpec(
             "crowd",
@@ -288,7 +294,10 @@ def crowd_spec(seed: int = 0, replications: int = 10) -> ModelSpec:
         )
 
     def fit_predict(X_train, y_train, X_test):
-        return np.asarray(crowd.fit_predict(X_train, y_train, X_test, replications=replications))
+        est = CrowdANN(n_replications=replications, random_state=seed, n_jobs=-1)
+        pipe = pp.unscaled_pipeline(est)
+        pipe.fit(X_train, y_train)
+        return np.asarray(pipe.predict(X_test))
 
     return ModelSpec(
         "crowd", "Wisdom of the crowd", "crowd", fit_predict, extra={"replications": replications}

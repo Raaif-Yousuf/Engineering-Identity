@@ -43,9 +43,8 @@ def _raw_estimator(model_key: str, seed: int):
             verbosity=-1,
         )
     if model_key in ("ridge",):
-        from sklearn.linear_model import RidgeCV
-
         import numpy as np
+        from sklearn.linear_model import RidgeCV
 
         return RidgeCV(alphas=np.logspace(-3, 3, 25))
     raise ValueError(f"No bare estimator available for importance_model={model_key!r}")
