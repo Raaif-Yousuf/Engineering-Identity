@@ -1,6 +1,7 @@
 # Human-subjects research data must never be committed to this repo.
-data/
-models/
+# Root-anchored so this does not also match the src/ei_model/models/ package.
+/data/
+/models/
 *.xlsx
 *.csv
 !tests/fixtures/*.csv
