@@ -5,6 +5,10 @@
 *.xlsx
 *.csv
 !tests/fixtures/*.csv
+# Experiment result aggregates are safe to commit (mean/sd of R2/RMSE/MAE
+# per protocol/model, feature-family importances) -- never per-participant
+# rows. See docs/experiments.md.
+!results/*.csv
 *.pkl
 *.keras
 *.mat
@@ -25,6 +29,10 @@ htmlcov/
 .venv/
 venv/
 env/
+
+# Raw stdout/TensorFlow logs from experiment runs -- operational noise, not
+# a deliverable (the aggregates in results/*.csv are what's reported).
+/results/logs/
 
 # IDE / OS junk
 .idea/
