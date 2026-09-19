@@ -96,6 +96,51 @@ def repeated_kfold_cv(
     return _summarize(r2s, rmses, maes)
 
 
+@dataclass
+class FoldScore:
+    """R2/RMSE/MAE for one scored fold, plus which repeat/fold it came from."""
+
+    repeat: int
+    fold: int
+    r2: float
+    rmse: float
+    mae: float
+    n_test: int
+
+
+def repeated_kfold_cv_detailed(
+    X: pd.DataFrame,
+    y: pd.Series,
+    fit_predict: FitPredict,
+    n_splits: int = 5,
+    n_repeats: int = 3,
+    random_state: int = DEFAULT_RANDOM_STATE,
+) -> tuple[MetricSummary, list[FoldScore]]:
+    """Like `repeated_kfold_cv`, but also returns the per-fold scores.
+
+    The per-fold scores are what paired comparisons (e.g. a model vs. the
+    original ANN, fold-for-fold, since both use the same `random_state`/
+    `n_splits`/`n_repeats` and so see identical splits) need: a fraction of
+    folds improved and a Wilcoxon signed-rank test, both computed in
+    `ei_model.experiments.stats`.
+    """
+    fold_scores: list[FoldScore] = []
+    for repeat in range(n_repeats):
+        kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state + repeat)
+        for fold, (train_idx, test_idx) in enumerate(kf.split(X)):
+            X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+            y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+            y_pred = fit_predict(X_train, y_train, X_test)
+            r2, rmse, mae = _score_fold(y_test, y_pred)
+            fold_scores.append(
+                FoldScore(repeat=repeat, fold=fold, r2=r2, rmse=rmse, mae=mae, n_test=len(test_idx))
+            )
+    summary = _summarize(
+        [s.r2 for s in fold_scores], [s.rmse for s in fold_scores], [s.mae for s in fold_scores]
+    )
+    return summary, fold_scores
+
+
 def nested_cv(
     X: pd.DataFrame,
     y: pd.Series,

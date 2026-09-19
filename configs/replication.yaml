@@ -1,0 +1,52 @@
+# P1 "replication": all features, including the identity-survey block
+# (identity_survey_LEAKAGE_RISK). Directly comparable to the original
+# owner's numbers -- labeled "includes score components" throughout the
+# results/figures. See docs/experiments.md.
+name: replication
+protocol: P1
+variants: [after, before, diff]
+
+models:
+  - mean
+  - ridge
+  - elastic_net
+  - random_forest
+  - xgboost
+  - lightgbm
+  - original_ann
+  - improved_ann
+  - stacking
+  - crowd
+
+cv:
+  n_splits: 5
+  n_repeats: 5
+  random_state: 42
+
+# The two ANN models are far slower than the tree/linear models above (each
+# fit trains a Keras network with up to 1000 epochs of early-stopped
+# training). Scored at 1 repeat (5 folds) instead of 5 repeats (25 folds) to
+# keep wall time sane on a single CPU machine; see docs/experiments.md
+# "Runtime deviations from the spec" for what this trades off.
+ann_cv:
+  n_splits: 5
+  n_repeats: 1
+  random_state: 42
+
+improved_ann_n_seeds: 3
+
+tuning:
+  n_iter: 15
+  inner_cv: 3
+
+random_state: 42
+paired_baseline: original_ann
+importance_model: xgboost
+results_dir: results
+figures_dir: results/figures
+notes: >
+  P1 replicates the original setup as closely as this harness allows: all
+  columns of the full (non-concept-map-restricted) cohort, including the
+  7-item identity-survey block that is itself a component of the composite
+  EI target (see docs/data.md "Target leakage"). Expect R^2 to look good
+  here largely because of that leakage -- P2 is the leakage-free comparison.

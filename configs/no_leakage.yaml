@@ -1,0 +1,44 @@
+# P2 "no leakage": P1 minus the identity_survey_LEAKAGE_RISK family. See
+# docs/data.md "Target leakage: identity survey items" and docs/experiments.md.
+name: no_leakage
+protocol: P2
+variants: [after, before, diff]
+
+models:
+  - mean
+  - ridge
+  - elastic_net
+  - random_forest
+  - xgboost
+  - lightgbm
+  - original_ann
+  - improved_ann
+  - stacking
+  - crowd
+
+cv:
+  n_splits: 5
+  n_repeats: 5
+  random_state: 42
+
+ann_cv:
+  n_splits: 5
+  n_repeats: 1
+  random_state: 42
+
+improved_ann_n_seeds: 3
+
+tuning:
+  n_iter: 15
+  inner_cv: 3
+
+random_state: 42
+paired_baseline: original_ann
+importance_model: xgboost
+results_dir: results
+figures_dir: results/figures
+notes: >
+  Same cohort and columns as P1 except identity_survey_LEAKAGE_RISK is
+  dropped. This is the honest same-timepoint number: still fits from
+  same-semester survey/definition/career-achievement columns, just not the
+  ones that are themselves inputs to the EI composite.
