@@ -24,6 +24,39 @@ DEFAULT_TARGET_SHEET = "Targets"
 DEFAULT_PARTICIPANT_COL = "Participant Code"
 DEFAULT_TARGET_COL = "Target"
 
+# The three canonical, de-identified modeling tables (see docs/data.md). Each
+# is a Parquet file living in EI_DATA_DIR, keyed by a salted-hash 'pid'
+# column (never the raw Participant Code) with the composite engineering
+# identity target in a column named 'ei'.
+MODELING_VARIANTS: tuple[str, ...] = ("after", "before", "diff")
+PID_COL = "pid"
+EI_TARGET_COL = "ei"
+
+# Valid range of the composite EI target, by variant. 'after'/'before' are
+# single-timepoint Whole scores; 'diff' is After-minus-Before and so has
+# double the range.
+VALID_TARGET_RANGES: dict[str, tuple[float, float]] = {
+    "after": (-50.0, 50.0),
+    "before": (-50.0, 50.0),
+    "diff": (-100.0, 100.0),
+}
+
+# Committed, column-names-only feature-family map (see FeatureFamilies below
+# for the synthetic/regex-based grouping used in tests). Real column names
+# never appear anywhere else in this repo.
+FEATURE_FAMILIES_PATH = Path(__file__).parent / "feature_families.yaml"
+
+
+class UnknownVariantError(ValueError):
+    """Raised when a variant name outside MODELING_VARIANTS is requested."""
+
+
+def _check_variant(variant: str) -> None:
+    if variant not in MODELING_VARIANTS:
+        raise UnknownVariantError(
+            f"Unknown variant {variant!r}; expected one of {MODELING_VARIANTS}."
+        )
+
 # Column-name patterns used to group features into families. Configurable:
 # pass a custom mapping to FeatureFamilies/group_features_by_family to
 # override any or all of these, e.g. for a differently-named export.
@@ -91,6 +124,50 @@ def load_modeling_table(
         raise KeyError(f"Missing '{participant_col}' column in '{target_sheet}' sheet.")
 
     return inputs.merge(targets[[participant_col, target_col]], on=participant_col)
+
+
+def load_variant(
+    variant: str,
+    data_dir: Path | str | None = None,
+    env_var: str = "EI_DATA_DIR",
+) -> pd.DataFrame:
+    """Load one of the canonical, de-identified modeling tables ('after'/'before'/'diff').
+
+    Reads `<data_dir>/<variant>.parquet`, where `data_dir` defaults to
+    `get_data_dir(env_var)`. Each table is keyed by a salted-hash 'pid'
+    column (see docs/data.md) and carries the composite EI target in an
+    'ei' column; the real Participant Code never appears in these files.
+    """
+    _check_variant(variant)
+    resolved_dir = Path(data_dir).expanduser() if data_dir is not None else get_data_dir(env_var)
+    path = resolved_dir / f"{variant}.parquet"
+    table = pd.read_parquet(path)
+
+    for required in (PID_COL, EI_TARGET_COL):
+        if required not in table.columns:
+            raise KeyError(f"'{variant}.parquet' is missing the '{required}' column.")
+    return table
+
+
+def load_feature_families(
+    variant: str | None = None,
+    path: Path | str | None = None,
+) -> dict[str, list[str]] | dict[str, dict[str, list[str]]]:
+    """Load the committed column-name-only feature-family map for one/all variants.
+
+    With `variant`, returns that variant's `{family: [column, ...]}` mapping.
+    Without it, returns the full `{variant: {family: [column, ...]}}` map.
+    """
+    import yaml
+
+    families_path = Path(path) if path is not None else FEATURE_FAMILIES_PATH
+    with families_path.open("r", encoding="utf-8") as fh:
+        all_families = yaml.safe_load(fh)
+
+    if variant is None:
+        return all_families
+    _check_variant(variant)
+    return all_families[variant]
 
 
 def split_features_target(
