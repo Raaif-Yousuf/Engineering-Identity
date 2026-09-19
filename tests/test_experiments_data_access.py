@@ -41,6 +41,20 @@ def test_drop_families_removes_leakage_block(data_dir):
     assert len(dropped) == len(table)
 
 
+def test_load_partial_cleans_implausible_hours_values(tmp_path):
+    import numpy as np
+
+    write_synthetic_data_dir(tmp_path, seed=9)
+    path = tmp_path / "after_partial.parquet"
+    table = da.load_variant("after", completeness="partial", data_dir=tmp_path)
+    table.loc[0, "Hours on Campus Per Week"] = 123456789.0
+    table.to_parquet(path)
+
+    cleaned = da.load_partial("after", data_dir=tmp_path)
+
+    assert np.isnan(cleaned.loc[0, "Hours on Campus Per Week"])
+
+
 def test_join_on_pid_is_inner_join(data_dir):
     before = da.load_partial("before", data_dir=data_dir)
     after = da.load_partial("after", data_dir=data_dir)

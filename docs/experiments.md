@@ -132,6 +132,48 @@ both were allowed by the spec, and `RandomizedSearchCV` needed no new
 dependency-management surface (Optuna's own storage/pruner config) for what
 is, at 15 iterations, already a small search.
 
+## Data quality: implausible "hours per week" values
+
+While first running this harness against real data, `ridge` (a plain
+regularized linear model, no tuning to blame) scored R^2 in the hundreds of
+thousands negative on `after`, and the unchanged `original_ann` scored R^2
+in the tens of millions negative -- both wildly outside anything a genuine
+model failure produces. The cause was in the data, not the models: three
+self-reported "hours per week" columns (`Hours on Campus Per Week`,
+`Engineering Activity on Campus Per Week`, `Non-Engineering Activity on
+Campus Per Week`) contain values that are not physically possible (a week
+has 168 hours), including a literal `123456789` placeholder in one `after`
+row. Counted directly from `EI_DATA_DIR`:
+
+| Table | Column | Rows over 168 | Example values |
+|---|---|---:|---|
+| after_partial (n=1789) | Hours on Campus Per Week | 8 | 300, 2000, 2250, 123456789 |
+| after_partial | Engineering Activity on Campus Per Week | 5 | 490, 1000, 123456789 |
+| after_partial | Non-Engineering Activity on Campus Per Week | 7 | 500, 1250, 1100000, 123456789 |
+| diff_partial (n=1012) | Hours on Campus Per Week | 5 | 300, 2250, 500 |
+| diff_partial | Engineering Activity on Campus Per Week | 3 | 490, 1000, 600 |
+| diff_partial | Non-Engineering Activity on Campus Per Week | 3 | 200, 1250, 500 |
+| before_partial (n=1929) | (same 3, renamed) | 0 | -- clean |
+
+`ei_model.experiments.cleaning.clean_implausible_hours` nulls any value with
+`abs(value) > 168` in these columns (a hard physical bound, not a threshold
+fit from the sample, so it's applied once at load time rather than inside
+each CV fold -- see that module's docstring) before anything else happens to
+the data. `data_access.load_partial`/`load_complete` call it automatically.
+Concept-map "Sum"/"Max" complexity metrics that also look large (tens of
+thousands) were checked and left alone -- those are expected to scale with
+graph size for a metric that sums over vertex pairs, not a data error.
+
+This is flagged here, not fixed silently, because it changes what "the
+original numbers" even mean: the owner's original single-90/10-holdout runs
+almost certainly hit these same rows sometimes and not other times depending
+on the random split, which is a very plausible contributor to the wide,
+irreproducible swings across saved prediction files that `EI_inventory.md`
+documents (R^2 from -0.72 to +0.45 across 41 files). Whoever maintains
+`EI_DATA_DIR`'s build script should decide whether to fix this upstream;
+this harness works around it defensively so a handful of bad survey
+responses can't dominate every model trained on this data.
+
 ## Runtime deviations from the spec
 
 Honesty requires flagging every place a CPU/time budget won this session,
