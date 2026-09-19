@@ -6,10 +6,12 @@ import pandas as pd
 import pytest
 
 from ei_model.data import (
+    COMPLETENESS_LEVELS,
     DEFAULT_FEATURE_FAMILY_PATTERNS,
     MODELING_VARIANTS,
     VALID_TARGET_RANGES,
     DataDirNotConfiguredError,
+    UnknownCompletenessError,
     UnknownVariantError,
     get_data_dir,
     group_features_by_family,
@@ -95,27 +97,38 @@ def test_default_env_var_is_ei_data_dir():
     assert inspect.signature(get_data_dir).parameters["env_var"].default == "EI_DATA_DIR"
 
 
-def _write_synthetic_variant_parquet(tmp_path, variant: str, n_rows: int = 20):
-    """A tiny synthetic parquet shaped like a real after/before/diff table (pid + ei)."""
+def _write_synthetic_variant_parquet(
+    tmp_path, variant: str, completeness: str = "partial", n_rows: int = 20
+):
+    """A tiny synthetic parquet shaped like a real modeling table (pid + ei)."""
     table = generate_synthetic_modeling_table(n_rows=n_rows, seed=1)
     table = table.rename(columns={PARTICIPANT_COL: "pid", TARGET_COL: "ei"})
-    table.to_parquet(tmp_path / f"{variant}.parquet", index=False)
+    table.to_parquet(tmp_path / f"{variant}_{completeness}.parquet", index=False)
     return table
 
 
 @pytest.mark.parametrize("variant", MODELING_VARIANTS)
-def test_load_variant_reads_pid_and_ei_columns(tmp_path, variant):
-    expected = _write_synthetic_variant_parquet(tmp_path, variant)
+@pytest.mark.parametrize("completeness", COMPLETENESS_LEVELS)
+def test_load_variant_reads_pid_and_ei_columns(tmp_path, variant, completeness):
+    expected = _write_synthetic_variant_parquet(tmp_path, variant, completeness)
 
-    loaded = load_variant(variant, data_dir=tmp_path)
+    loaded = load_variant(variant, completeness=completeness, data_dir=tmp_path)
 
     assert "pid" in loaded.columns
     assert "ei" in loaded.columns
     assert len(loaded) == len(expected)
 
 
+def test_load_variant_defaults_to_partial(tmp_path):
+    expected = _write_synthetic_variant_parquet(tmp_path, "after", "partial")
+
+    loaded = load_variant("after", data_dir=tmp_path)
+
+    assert len(loaded) == len(expected)
+
+
 def test_load_variant_uses_env_var_when_data_dir_omitted(tmp_path, monkeypatch):
-    _write_synthetic_variant_parquet(tmp_path, "after")
+    _write_synthetic_variant_parquet(tmp_path, "after", "partial")
     monkeypatch.setenv("EI_DATA_DIR", str(tmp_path))
 
     loaded = load_variant("after")
@@ -128,9 +141,14 @@ def test_load_variant_rejects_unknown_variant(tmp_path):
         load_variant("nonexistent", data_dir=tmp_path)
 
 
+def test_load_variant_rejects_unknown_completeness(tmp_path):
+    with pytest.raises(UnknownCompletenessError):
+        load_variant("after", completeness="nonexistent", data_dir=tmp_path)
+
+
 def test_load_variant_requires_pid_and_ei_columns(tmp_path):
     pd.DataFrame({"Participant Code": ["P1"], "Target": [1.0]}).to_parquet(
-        tmp_path / "after.parquet", index=False
+        tmp_path / "after_partial.parquet", index=False
     )
     with pytest.raises(KeyError):
         load_variant("after", data_dir=tmp_path)
