@@ -1,0 +1,46 @@
+# P3b: P3's features plus the before-semester ei score itself, predicting
+# after ei -- a persistence ("nothing changed") baseline reported separately
+# from P3, per the task spec.
+name: persistence_baseline
+protocol: P3b
+variants: [before_to_after]  # ignored by build_all(P3b); single joined dataset
+
+models:
+  - mean
+  - ridge
+  - elastic_net
+  - random_forest
+  - xgboost
+  - lightgbm
+  - original_ann
+  - improved_ann
+  - stacking
+  - crowd
+
+cv:
+  n_splits: 5
+  n_repeats: 5
+  random_state: 42
+
+ann_cv:
+  n_splits: 5
+  n_repeats: 1
+  random_state: 42
+
+improved_ann_n_seeds: 3
+
+tuning:
+  n_iter: 15
+  inner_cv: 3
+
+random_state: 42
+paired_baseline: original_ann
+importance_model: xgboost
+results_dir: results
+figures_dir: results/figures
+notes: >
+  Same joined cohort as P3, with one extra feature: the student's own before
+  ei score ("ei_before"). This is a persistence baseline, not a genuine
+  prediction task -- if this alone matches or beats P3's R^2, most of what
+  P3's other features contribute is redundant with "the student already had
+  a stable EI level at the start of the semester."

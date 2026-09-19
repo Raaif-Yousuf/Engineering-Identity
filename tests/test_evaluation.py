@@ -8,7 +8,12 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from ei_model.evaluation import nested_cv, repeated_kfold_cv, single_holdout
+from ei_model.evaluation import (
+    nested_cv,
+    repeated_kfold_cv,
+    repeated_kfold_cv_detailed,
+    single_holdout,
+)
 
 
 def _ridge_fit_predict(X_train, y_train, X_test):
@@ -86,6 +91,27 @@ def test_single_holdout_respects_custom_test_size(synthetic_X_y):
     single_holdout(X, y, capturing_fit_predict, test_size=0.2, random_state=0)
 
     assert sizes == [round(len(X) * 0.2)]
+
+
+def test_repeated_kfold_cv_detailed_matches_summary_and_returns_fold_scores(synthetic_X_y):
+    X, y = synthetic_X_y
+    summary, fold_scores = repeated_kfold_cv_detailed(
+        X, y, _ridge_fit_predict, n_splits=4, n_repeats=2
+    )
+
+    assert len(fold_scores) == 4 * 2
+    assert summary.n_folds == 4 * 2
+    assert summary.r2_mean == np.mean([s.r2 for s in fold_scores])
+    keys = {(s.repeat, s.fold) for s in fold_scores}
+    assert keys == {(r, f) for r in range(2) for f in range(4)}
+
+
+def test_repeated_kfold_cv_detailed_same_seed_matches_repeated_kfold_cv(synthetic_X_y):
+    X, y = synthetic_X_y
+    plain = repeated_kfold_cv(X, y, _ridge_fit_predict, n_splits=4, n_repeats=2)
+    summary, _ = repeated_kfold_cv_detailed(X, y, _ridge_fit_predict, n_splits=4, n_repeats=2)
+
+    assert plain.as_dict() == summary.as_dict()
 
 
 def test_single_holdout_with_original_ann_tiny_epochs(synthetic_X_y):

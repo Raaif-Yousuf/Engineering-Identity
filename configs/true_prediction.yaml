@@ -1,0 +1,47 @@
+# P3 "true prediction": before-semester features (excluding the identity
+# block) predicting after-semester ei, joined by pid. The only protocol here
+# with a genuine temporal gap between features and target.
+name: true_prediction
+protocol: P3
+variants: [before_to_after]  # ignored by build_all(P3); single joined dataset
+
+models:
+  - mean
+  - ridge
+  - elastic_net
+  - random_forest
+  - xgboost
+  - lightgbm
+  - original_ann
+  - improved_ann
+  - stacking
+  - crowd
+
+cv:
+  n_splits: 5
+  n_repeats: 5
+  random_state: 42
+
+ann_cv:
+  n_splits: 5
+  n_repeats: 1
+  random_state: 42
+
+improved_ann_n_seeds: 3
+
+tuning:
+  n_iter: 15
+  inner_cv: 3
+
+random_state: 42
+paired_baseline: original_ann
+importance_model: xgboost
+results_dir: results
+figures_dir: results/figures
+notes: >
+  before.parquet features (identity block excluded) -> after.parquet ei,
+  inner-joined on pid (n = size of the before/after overlap, well under
+  either variant's full cohort -- see the results CSV for the exact n).
+  This is the closest protocol here to genuinely forecasting engineering
+  identity from earlier information, rather than describing it from
+  concurrent survey answers.

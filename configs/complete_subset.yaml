@@ -1,0 +1,46 @@
+# P4 "complete subset": P2 and P3 restricted to the concept-map-complete
+# cohort (students whose hand-drawn concept map was digitized/coded), run
+# with and without the 44 concept-map columns, to isolate what the maps add.
+#
+# Deviation from the other protocols, documented in docs/experiments.md
+# "Runtime deviations from the spec": the ANN models (original_ann,
+# improved_ann) are NOT run here. P4 already multiplies out to 8 dataset
+# configs (3 variants x with/without CM for P2, plus 2 for P3), and adding
+# two more Keras fits per fold on top of that was not affordable on a single
+# CPU machine in this pass. paired_baseline is therefore random_forest, not
+# original_ann -- P4 has no paired comparison against the original ANN.
+name: complete_subset
+protocol: P4
+variants: [after, before, diff]
+
+models:
+  - mean
+  - ridge
+  - elastic_net
+  - random_forest
+  - xgboost
+  - lightgbm
+  - stacking
+  - crowd
+
+cv:
+  n_splits: 5
+  n_repeats: 5
+  random_state: 42
+
+tuning:
+  n_iter: 15
+  inner_cv: 3
+
+random_state: 42
+paired_baseline: random_forest
+importance_model: xgboost
+results_dir: results
+figures_dir: results/figures
+notes: >
+  8 dataset configs: p4_p2_{after,before,diff}_{with,without}_cm (P2,
+  restricted to each variant's concept-map-complete cohort) plus
+  p4_p3_before_to_after_{with,without}_cm (P3, before-complete joined to
+  after ei). Compare the with/without pairs to see what the 44 concept-map
+  columns add once the cohort is held fixed. No ANN models here -- see the
+  deviation note above.

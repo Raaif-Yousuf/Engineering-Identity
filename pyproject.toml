@@ -10,17 +10,22 @@ dependencies = [
     "tensorflow-cpu==2.21.0",
     "scikit-learn==1.9.1",
     "xgboost==3.4.1",
+    "lightgbm==4.6.0",
     "pandas==3.0.6",
     "openpyxl==3.1.5",
     "matplotlib==3.11.2",
     "numpy==2.5.3",
     "pyarrow==25.0.1",
     "pyyaml==6.0.3",
+    "scipy==1.16.2",
 ]
 
 [project.optional-dependencies]
 shap = ["shap==0.52.0"]
 dev = ["pytest==9.1.1", "ruff==0.16.8"]
+
+[project.scripts]
+ei-experiments = "ei_model.experiments.cli:main"
 
 [build-system]
 requires = ["hatchling"]
