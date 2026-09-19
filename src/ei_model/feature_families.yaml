@@ -1,0 +1,703 @@
+# Column-name-only feature family map for the three canonical modeling
+# tables (after/before/diff). No data values live here, only column names,
+# so this file is safe to commit (see docs/data.md).
+#
+# Family key meanings:
+#   demographics                      - Year/Major/Age/Gender + one-hot discipline
+#   influences                        - who/what pushed the student toward engineering
+#                                        (family members, curricular/social/etc. sources;
+#                                        for 'before', also the program/school-choice block)
+#   experiences_curricular_...        - curricular/co-curricular/extra-curricular
+#                                        involvement (CIF) and hours-on-campus items
+#   self_identification               - "I see myself as a(n) Engineer/Researcher/..."
+#   career_achievements               - checklist of engineer "success" milestones
+#                                        (PE exam, patents, recognition, salary, ...)
+#   skills_self_assessment            - 'before' only: 26-item literacy/soft-skill
+#                                        self-rating block, not present in 'after'/'diff'
+#   definitions_ed                    - 15-keyword binary match against the "define an
+#                                        engineer" free-response (paper's E-D metrics)
+#   role_er                           - 15-keyword binary match against the "role of an
+#                                        engineer" free-response (paper's E-R metrics)
+#   keywords_skey                     - 15-keyword binary match against a third,
+#                                        self-referential free-response (S-Key metrics)
+#   concept_map                       - 15 keyword-presence-in-concept-map columns
+#                                        ("(CM)") + 29 MATLAB concept-map complexity
+#                                        metrics ("[Size]"/"[Inter Conn]"/etc.). Left-
+#                                        joined from the 2026-09-19 OneDrive "+CM" dump
+#                                        on Participant Code; NaN for participants whose
+#                                        concept map has not been digitized (see
+#                                        docs/data.md for coverage %).
+#   identity_survey_LEAKAGE_RISK      - TARGET LEAKAGE RISK, do not use as model input
+#                                        without care. These are the Recognition/
+#                                        Interest/Performance items the paper describes
+#                                        as the three dimensions the composite EI score
+#                                        is built from. Empirically, a simple sum of
+#                                        just these items already explains ~35% of the
+#                                        target's variance (R^2=0.35 on 'after', naive
+#                                        linear fit) -- far above any other single
+#                                        family -- consistent with them being direct
+#                                        components of 'ei' rather than merely
+#                                        correlated with it. No exact (R^2=1.0)
+#                                        reconstruction was found, so the composite is
+#                                        not a simple visible sum/mean of these columns
+#                                        alone; the full scoring formula was not located
+#                                        in the source paper drafts. Treat this family as
+#                                        excluded-by-default for any model meant to
+#                                        *predict* EI from upstream factors.
+after:
+  demographics:
+  - Year
+  - Major
+  - Age
+  - Gender
+  - Mechanical
+  - Electrical
+  - Computer Science/Software
+  - Biomedical
+  - Civil
+  - Chemical
+  - Industrial
+  - Materials
+  - Systems
+  - Environmental
+  influences:
+  - Father
+  - Mother
+  - Sibling
+  - Uncle
+  - Aunt
+  - Grandparent
+  - Close Family Friend
+  - None
+  - Curricular
+  - Co-curricular
+  - Extra-curricular
+  - Self-directed
+  - Personal
+  - Social
+  - Professional
+  - Not Sure
+  - NA
+  experiences_curricular_cocurricular_extracurricular:
+  - Coursework (Lectures)
+  - Labs
+  - Capstone/Senior Design-Skill Q
+  - Project Based Credit-Skill Q
+  - Technical Student Org-Skill Q
+  - Internship/Co-op-Skill Q
+  - Makerspace-Skill Q
+  - Technical Competitions-Skill Q
+  - Research-Skill Q
+  - Workshop/ Machine Shop-Skill Q
+  - Projects-Skill Q
+  - Library-Skill Q
+  - Non-Technical Student Orgs-Skill Q
+  - Non-Technical Competitions-Skill Q
+  - Campus Jobs-Skill Q
+  - Self-directed learning-Skill Q
+  - Capstone or Senior Design
+  - Project Based Credit
+  - Exchange or Study Abroad
+  - Technical Student Organizations/Clubs
+  - <30 hours/week Internship/Co-op
+  - '>=30 hours/week Internship/Co-op'
+  - Machines, tools, equipment and spaces
+  - General and shop safety, and PPE
+  - Technical Competitions
+  - Research Credit Hours with a Professor
+  - RIDE Project
+  - Recipient of fellowship or scholarship or award
+  - Projects (one or more)
+  - Library Use
+  - Non-technical student organizations or clubs
+  - Non-technical Competitions
+  - Campus job
+  - Hours on Campus Per Week
+  - Engineering Activity on Campus Per Week
+  - Non-Engineering Activity on Campus Per Week
+  self_identification:
+  - Engineer
+  - Researcher
+  - Scientist
+  - Student
+  - Not Sure.1
+  identity_survey_LEAKAGE_RISK:
+  - I felt strong ties to other engineers in my discipline this semester
+  - I felt strong ties to other engineers in other disciplines this semester
+  - Being an engineer is an important reflection of who I am
+  - Expanded engineering interest
+  - Took initiative and ownership to do more engineering
+  - Improved my engineering performance
+  - I was recognized as an engineer based on my work and actions
+  career_achievements:
+  - PE exam
+  - Patent
+  - Award
+  - Work Experience
+  - Post Graduate
+  - Job
+  - Undergrad Degree
+  - Student.1
+  - Not Sure.2
+  - Job.1
+  - 10 Years Work Experience
+  - Solve Problems
+  - Faculty Recognition
+  - Industry Recognition
+  - Impact
+  - Salary
+  - Undergrad Degree.1
+  - Peer Recognition
+  - Teaching
+  - Not sure
+  definitions_ed:
+  - Economical (E-D)
+  - Practice (E-D)
+  - Systems (E-D)
+  - Professional (E-D)
+  - Skills (E-D)
+  - Challenges (E-D)
+  - Knowledge (E-D)
+  - Design (E-D)
+  - Community (E-D)
+  - Practical (E-D)
+  - Solutions (E-D)
+  - Project (E-D)
+  - Experience (E-D)
+  - Mechanical (E-D)
+  - Requirements (E-D)
+  role_er:
+  - Economical (E-R)
+  - Practice (E-R)
+  - Systems (E-R)
+  - Professional (E-R)
+  - Skills (E-R)
+  - Challenges (E-R)
+  - Knowledge (E-R)
+  - Design (E-R)
+  - Community (E-R)
+  - Practical (E-R)
+  - Solutions (E-R)
+  - Project (E-R)
+  - Experience (E-R)
+  - Mechanical (E-R)
+  - Requirements (E-R)
+  keywords_skey:
+  - Economical (S-Key)
+  - Practice (S-Key)
+  - Systems (S-Key)
+  - Professional (S-Key)
+  - Skills (S-Key)
+  - Challenges (S-Key)
+  - Knowledge (S-Key)
+  - Design (S-Key)
+  - Community (S-Key)
+  - Practical (S-Key)
+  - Solutions (S-Key)
+  - Project (S-Key)
+  - Experience (S-Key)
+  - Mechanical (S-Key)
+  - Requirements (S-Key)
+  concept_map:
+  - Economical (CM)
+  - Practice (CM)
+  - Systems (CM)
+  - Professional (CM)
+  - Skills (CM)
+  - Challenges (CM)
+  - Knowledge (CM)
+  - Design (CM)
+  - Community (CM)
+  - Practical (CM)
+  - Solutions (CM)
+  - Project (CM)
+  - Experience (CM)
+  - Mechanical (CM)
+  - Requirements (CM)
+  - '[Size] - [Dimm] - [Elements]'
+  - '[Size] - [Dimm] - [Rel]'
+  - '[Size] - [Conn] - [DOF]'
+  - '[Size] - [Conn] - [Conn]'
+  - '[Inter Conn] - [Shortest Path] - [Sum]'
+  - '[Inter Conn] - [Shortest Path] - [Max]'
+  - '[Inter Conn] - [Shortest Path] - [Mean]'
+  - '[Inter Conn] - [Shortest Path] - [Density]'
+  - '[Inter Conn] - [Flow Rate] - [Sum]'
+  - '[Inter Conn] - [Flow Rate] - [Max]'
+  - '[Inter Conn] - [Flow Rate] - [Mean]'
+  - '[Inter Conn] - [Flow Rate] - [Density]'
+  - '[Centrality] - [Betweenness] - [Sum]'
+  - '[Centrality] - [Betweenness] - [Max]'
+  - '[Centrality] - [Betweenness] - [Mean]'
+  - '[Centrality] - [Betweenness] - [Density]'
+  - '[Centrality] - [Clustering Coefficient] - [Sum]'
+  - '[Centrality] - [Clustering Coefficient] - [Max]'
+  - '[Centrality] - [Clustering Coefficient] - [Mean]'
+  - '[Centrality] - [Clustering Coefficient] - [Density]'
+  - '[Decomp] - [Ameri Summers] - [AmSume]'
+  - '[Decomp] - [Core Num In] - [Sum]'
+  - '[Decomp] - [Core Num In] - [Max]'
+  - '[Decomp] - [Core Num In] - [Mean]'
+  - '[Decomp] - [Core Num In] - [Density]'
+  - '[Decomp] - [Core Num Out] - [Sum]'
+  - '[Decomp] - [Core Num Out] - [Max]'
+  - '[Decomp] - [Core Num Out] - [Mean]'
+  - '[Decomp] - [Core Num Out] - [Density]'
+before:
+  demographics:
+  - Year
+  - Major
+  - Age
+  - Gender
+  - Mechanical
+  - Electrical
+  - Computer Science/Software
+  - Biomedical
+  - Civil
+  - Chemical
+  - Industrial
+  - Materials
+  - Systems
+  - Environmental
+  influences:
+  - Personal
+  - Familial
+  - Social
+  - Educational (K-12)
+  - Financial
+  - Interactions
+  - Myself
+  - Parent
+  - Sibling
+  - Grand Parent
+  - Friend
+  - Teacher
+  - Cousin
+  - Other Family Member
+  - Colleague or Coworker
+  - Other Acquaintance
+  - Elementary School
+  - Middle School
+  - High School
+  - Associate Degree
+  - Community College
+  - University
+  - Technical Diploma
+  - 0t Sure
+  - Location
+  - Closer to home
+  - Away from home
+  - Ranking
+  - Scholarship
+  - In-state Tuition
+  - Better program and degree plan
+  - Engineering school reputation
+  - Family influence
+  - Major.1
+  - Sub-topics
+  - Family
+  - Specialised
+  - Generic
+  - Scope to change
+  - Real Engineering
+  - Related most
+  - 'Backup '
+  - Financial.1
+  career_achievements:
+  - Job
+  - Job.1
+  - PE exam
+  - Patent
+  - Award
+  - Work Experience
+  - Post Graduate
+  - Job.2
+  - Undergrad Degree
+  - Student.1
+  - 0t Sure.2
+  - Job.3
+  - 10 Years Work Experience
+  - Solve Problems
+  - Faculty Recognition
+  - Industry Recognition
+  - Impact
+  - Salary
+  - Undergrad Degree.1
+  - Peer Recognition
+  - Teaching
+  - 0t sure
+  skills_self_assessment:
+  - Scientific Literacy
+  - Computing and Internet Literacy
+  - Financial Literacy
+  - Civic Literacy
+  - Cultural Literacy
+  - Complex Problem Solving
+  - Critical Thinking
+  - Creativity
+  - Communication
+  - Collaboration
+  - Curiosity
+  - Initiative
+  - Persistence
+  - Adaptability
+  - Leadership
+  - Social Awareness
+  - Cultural Awareness
+  - People Management
+  - Emotional Intelligence
+  - Judgement & Decision Making
+  - Responsibility
+  - Ethics
+  - Service Orientation
+  - Negotiation
+  - Entrepreneurship
+  - Cognitive Flexibility
+  experiences_curricular_cocurricular_extracurricular:
+  - Coursework (Lectures)
+  - Labs
+  - Capstone/Senior Design
+  - Project Based Credit
+  - Technical Student Org
+  - Internship/Co-op
+  - Makerspace
+  - Technical Competitions
+  - Research
+  - Workshop/ Machine Shop
+  - Projects
+  - Library
+  - 0n-Technical Student Orgs
+  - 0n-Technical Competitions
+  - Campus Jobs
+  - Self-directed learning
+  - SCH
+  - Capstone or Senior Design
+  - Project Based Credit.1
+  - Exchange or Study Abroad
+  - Technical Student Organizations/Clubs
+  - Internship/Co-op.1
+  - Used machines, tools, equipment and spaces
+  - Completed General and shop safety, and PPE
+  - Technical Competitions.1
+  - Research Credit Hours with a Professor
+  - Fellowship or scholarship or award
+  - Projects (one or more)
+  - Library.1
+  - 0n-technical student organizations or clubs
+  - 0n-technical Competitions
+  - Campus job
+  - Engineering related job
+  - Total Per Week
+  - Engineering Hours
+  - 0n-Engineering Hours
+  - 0t Sure.1
+  self_identification:
+  - Engineer
+  - Researcher
+  - Scientist
+  - Student
+  identity_survey_LEAKAGE_RISK:
+  - I feel strong ties to other engineers in my discipline
+  - I feel strong ties to other engineers in other disciplines
+  - Being an engineer is an important reflection of who I am
+  - Expanding engineering interest
+  - Taking initiative and ownership
+  - Improving engineering performance
+  - Want to be seen as an engineer
+  definitions_ed:
+  - Economical (E-D)
+  - Practice (E-D)
+  - Systems (E-D)
+  - Professional (E-D)
+  - Skills (E-D)
+  - Challenges (E-D)
+  - K0wledge (E-D)
+  - Design (E-D)
+  - Community (E-D)
+  - Practical (E-D)
+  - Solutions (E-D)
+  - Project (E-D)
+  - Experience (E-D)
+  - Mechanical (E-D)
+  - Requirements (E-D)
+  role_er:
+  - Economical (E-R)
+  - Practice (E-R)
+  - Systems (E-R)
+  - Professional (E-R)
+  - Skills (E-R)
+  - Challenges (E-R)
+  - K0wledge (E-R)
+  - Design (E-R)
+  - Community (E-R)
+  - Practical (E-R)
+  - Solutions (E-R)
+  - Project (E-R)
+  - Experience (E-R)
+  - Mechanical (E-R)
+  - Requirements (E-R)
+  keywords_skey:
+  - Economical (S-Key)
+  - Practice (S-Key)
+  - Systems (S-Key)
+  - Professional (S-Key)
+  - Skills (S-Key)
+  - Challenges (S-Key)
+  - K0wledge (S-Key)
+  - Design (S-Key)
+  - Community (S-Key)
+  - Practical (S-Key)
+  - Solutions (S-Key)
+  - Project (S-Key)
+  - Experience (S-Key)
+  - Mechanical (S-Key)
+  - Requirements (S-Key)
+  concept_map:
+  - Economical (CM)
+  - Practice (CM)
+  - Systems (CM)
+  - Professional (CM)
+  - Skills (CM)
+  - Challenges (CM)
+  - K0wledge (CM)
+  - Design (CM)
+  - Community (CM)
+  - Practical (CM)
+  - Solutions (CM)
+  - Project (CM)
+  - Experience (CM)
+  - Mechanical (CM)
+  - Requirements (CM)
+  - '[Size] - [Dimm] - [Elements]'
+  - '[Size] - [Dimm] - [Rel]'
+  - '[Size] - [Conn] - [DOF]'
+  - '[Size] - [Conn] - [Conn]'
+  - '[Inter Conn] - [Shortest Path] - [Sum]'
+  - '[Inter Conn] - [Shortest Path] - [Max]'
+  - '[Inter Conn] - [Shortest Path] - [Mean]'
+  - '[Inter Conn] - [Shortest Path] - [Density]'
+  - '[Inter Conn] - [Flow Rate] - [Sum]'
+  - '[Inter Conn] - [Flow Rate] - [Max]'
+  - '[Inter Conn] - [Flow Rate] - [Mean]'
+  - '[Inter Conn] - [Flow Rate] - [Density]'
+  - '[Centrality] - [Betweenness] - [Sum]'
+  - '[Centrality] - [Betweenness] - [Max]'
+  - '[Centrality] - [Betweenness] - [Mean]'
+  - '[Centrality] - [Betweenness] - [Density]'
+  - '[Centrality] - [Clustering Coefficient] - [Sum]'
+  - '[Centrality] - [Clustering Coefficient] - [Max]'
+  - '[Centrality] - [Clustering Coefficient] - [Mean]'
+  - '[Centrality] - [Clustering Coefficient] - [Density]'
+  - '[Decomp] - [Ameri Summers] - [AmSume]'
+  - '[Decomp] - [Core Num In] - [Sum]'
+  - '[Decomp] - [Core Num In] - [Max]'
+  - '[Decomp] - [Core Num In] - [Mean]'
+  - '[Decomp] - [Core Num In] - [Density]'
+  - '[Decomp] - [Core Num Out] - [Sum]'
+  - '[Decomp] - [Core Num Out] - [Max]'
+  - '[Decomp] - [Core Num Out] - [Mean]'
+  - '[Decomp] - [Core Num Out] - [Density]'
+diff:
+  demographics:
+  - Year
+  - Major
+  - Age
+  - Gender
+  - Mechanical
+  - Electrical
+  - Computer Science/Software
+  - Biomedical
+  - Civil
+  - Chemical
+  - Industrial
+  - Materials
+  - Systems
+  - Environmental
+  influences:
+  - Personal
+  - Family
+  - Social
+  - Financial
+  - Father
+  - Mother
+  - Sibling
+  - Uncle
+  - Aunt
+  - Grandparent
+  - Close Family Friend
+  - None
+  - Curricular
+  - Co-curricular
+  - Extra-curricular
+  - Self-directed
+  - Professional
+  - Not Sure
+  - NA
+  experiences_curricular_cocurricular_extracurricular:
+  - Educational
+  - Personal.1
+  - Social.1
+  - Coursework (Lectures)
+  - Labs
+  - Capstone/Senior Design-Skill Q
+  - Project Based Credit-Skill Q
+  - Technical Student Org-Skill Q
+  - Internship/Co-op-Skill Q
+  - Makerspace-Skill Q
+  - Technical Competitions-Skill Q
+  - Research-Skill Q
+  - Workshop/ Machine Shop-Skill Q
+  - Projects-Skill Q
+  - Library-Skill Q
+  - Non-Technical Student Orgs-Skill Q
+  - Non-Technical Competitions-Skill Q
+  - Campus Jobs-Skill Q
+  - Self-directed learning-Skill Q
+  - Capstone or Senior Design
+  - Project Based Credit
+  - Exchange or Study Abroad
+  - Technical Student Organizations/Clubs
+  - <30 hours/week Internship/Co-op
+  - '>=30 hours/week Internship/Co-op'
+  - Machines, tools, equipment and spaces
+  - General and shop safety, and PPE
+  - Technical Competitions
+  - Research Credit Hours with a Professor
+  - RIDE Project
+  - Recipient of fellowship or scholarship or award
+  - Projects (one or more)
+  - Library Use
+  - Non-technical student organizations or clubs
+  - Non-technical Competitions
+  - Campus job
+  - Hours on Campus Per Week
+  - Engineering Activity on Campus Per Week
+  - Non-Engineering Activity on Campus Per Week
+  self_identification:
+  - Engineer
+  - Researcher
+  - Scientist
+  - Student
+  - Not Sure.1
+  identity_survey_LEAKAGE_RISK:
+  - I felt strong ties to other engineers in my discipline this semester
+  - I felt strong ties to other engineers in other disciplines this semester
+  - Being an engineer is an important reflection of who I am
+  - Expanded engineering interest
+  - Took initiative and ownership to do more engineering
+  - Improved my engineering performance
+  - I was recognized as an engineer based on my work and actions
+  career_achievements:
+  - PE exam
+  - Patent
+  - Award
+  - Work Experience
+  - Post Graduate
+  - Job
+  - Undergrad Degree
+  - Student.1
+  - Not Sure.2
+  - Job.1
+  - 10 Years Work Experience
+  - Solve Problems
+  - Faculty Recognition
+  - Industry Recognition
+  - Impact
+  - Salary
+  - Undergrad Degree.1
+  - Peer Recognition
+  - Teaching
+  - Not sure
+  definitions_ed:
+  - Economical (E-D)
+  - Practice (E-D)
+  - Systems (E-D)
+  - Professional (E-D)
+  - Skills (E-D)
+  - Challenges (E-D)
+  - Knowledge (E-D)
+  - Design (E-D)
+  - Community (E-D)
+  - Practical (E-D)
+  - Solutions (E-D)
+  - Project (E-D)
+  - Experience (E-D)
+  - Mechanical (E-D)
+  - Requirements (E-D)
+  role_er:
+  - Economical (E-R)
+  - Practice (E-R)
+  - Systems (E-R)
+  - Professional (E-R)
+  - Skills (E-R)
+  - Challenges (E-R)
+  - Knowledge (E-R)
+  - Design (E-R)
+  - Community (E-R)
+  - Practical (E-R)
+  - Solutions (E-R)
+  - Project (E-R)
+  - Experience (E-R)
+  - Mechanical (E-R)
+  - Requirements (E-R)
+  keywords_skey:
+  - Economical (S-Key)
+  - Practice (S-Key)
+  - Systems (S-Key)
+  - Professional (S-Key)
+  - Skills (S-Key)
+  - Challenges (S-Key)
+  - Knowledge (S-Key)
+  - Design (S-Key)
+  - Community (S-Key)
+  - Practical (S-Key)
+  - Solutions (S-Key)
+  - Project (S-Key)
+  - Experience (S-Key)
+  - Mechanical (S-Key)
+  - Requirements (S-Key)
+  concept_map:
+  - Economical (CM)
+  - Practice (CM)
+  - Systems (CM)
+  - Professional (CM)
+  - Skills (CM)
+  - Challenges (CM)
+  - Knowledge (CM)
+  - Design (CM)
+  - Community (CM)
+  - Practical (CM)
+  - Solutions (CM)
+  - Project (CM)
+  - Experience (CM)
+  - Mechanical (CM)
+  - Requirements (CM)
+  - '[Size] - [Dimm] - [Elements]'
+  - '[Size] - [Dimm] - [Rel]'
+  - '[Size] - [Conn] - [DOF]'
+  - '[Size] - [Conn] - [Conn]'
+  - '[Inter Conn] - [Shortest Path] - [Sum]'
+  - '[Inter Conn] - [Shortest Path] - [Max]'
+  - '[Inter Conn] - [Shortest Path] - [Mean]'
+  - '[Inter Conn] - [Shortest Path] - [Density]'
+  - '[Inter Conn] - [Flow Rate] - [Sum]'
+  - '[Inter Conn] - [Flow Rate] - [Max]'
+  - '[Inter Conn] - [Flow Rate] - [Mean]'
+  - '[Inter Conn] - [Flow Rate] - [Density]'
+  - '[Centrality] - [Betweenness] - [Sum]'
+  - '[Centrality] - [Betweenness] - [Max]'
+  - '[Centrality] - [Betweenness] - [Mean]'
+  - '[Centrality] - [Betweenness] - [Density]'
+  - '[Centrality] - [Clustering Coefficient] - [Sum]'
+  - '[Centrality] - [Clustering Coefficient] - [Max]'
+  - '[Centrality] - [Clustering Coefficient] - [Mean]'
+  - '[Centrality] - [Clustering Coefficient] - [Density]'
+  - '[Decomp] - [Ameri Summers] - [AmSume]'
+  - '[Decomp] - [Core Num In] - [Sum]'
+  - '[Decomp] - [Core Num In] - [Max]'
+  - '[Decomp] - [Core Num In] - [Mean]'
+  - '[Decomp] - [Core Num In] - [Density]'
+  - '[Decomp] - [Core Num Out] - [Sum]'
+  - '[Decomp] - [Core Num Out] - [Max]'
+  - '[Decomp] - [Core Num Out] - [Mean]'
+  - '[Decomp] - [Core Num Out] - [Density]'
