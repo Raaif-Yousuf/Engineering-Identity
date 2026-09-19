@@ -14,19 +14,33 @@ import pandas as pd
 
 from ei_model.data import EI_TARGET_COL, PID_COL, load_feature_families, load_variant
 
+from .cleaning import clean_implausible_hours
+
 LEAKAGE_FAMILY = "identity_survey_LEAKAGE_RISK"
 SELF_ID_FAMILY = "self_identification"
 CONCEPT_MAP_FAMILY = "concept_map"
 
 
 def load_partial(variant: str, data_dir=None, env_var: str = "EI_DATA_DIR") -> pd.DataFrame:
-    """The full-cohort table for `variant` (no concept-map columns)."""
-    return load_variant(variant, completeness="partial", data_dir=data_dir, env_var=env_var)
+    """The full-cohort table for `variant` (no concept-map columns).
+
+    Implausible "hours per week" values (see `cleaning.py`) are nulled out
+    here so every protocol gets the cleaned table without needing to
+    remember to call `clean_implausible_hours` itself.
+    """
+    table = load_variant(variant, completeness="partial", data_dir=data_dir, env_var=env_var)
+    cleaned, _report = clean_implausible_hours(table)
+    return cleaned
 
 
 def load_complete(variant: str, data_dir=None, env_var: str = "EI_DATA_DIR") -> pd.DataFrame:
-    """The concept-map-complete subset for `variant` (all 44 concept-map columns present)."""
-    return load_variant(variant, completeness="complete", data_dir=data_dir, env_var=env_var)
+    """The concept-map-complete subset for `variant` (all 44 concept-map columns present).
+
+    See `load_partial` -- implausible "hours per week" values are cleaned here too.
+    """
+    table = load_variant(variant, completeness="complete", data_dir=data_dir, env_var=env_var)
+    cleaned, _report = clean_implausible_hours(table)
+    return cleaned
 
 
 def family_columns(variant: str, family: str, present_columns) -> list[str]:
