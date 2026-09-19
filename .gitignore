@@ -1,0 +1,33 @@
+# Human-subjects research data must never be committed to this repo.
+data/
+models/
+*.xlsx
+*.csv
+!tests/fixtures/*.csv
+*.pkl
+*.keras
+*.mat
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environments
+.venv/
+venv/
+env/
+
+# IDE / OS junk
+.idea/
+.vs/
+.vscode/
+.DS_Store
+Thumbs.db

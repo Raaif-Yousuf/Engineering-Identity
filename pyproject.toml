@@ -1,0 +1,38 @@
+[project]
+name = "ei-model"
+version = "0.1.0"
+description = "Predicts a composite engineering identity score from concept-map, verification, definition, and survey metrics."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "Raaif Yousuf" }]
+dependencies = [
+    "tensorflow-cpu==2.21.0",
+    "scikit-learn==1.9.1",
+    "xgboost==3.4.1",
+    "pandas==3.0.6",
+    "openpyxl==3.1.5",
+    "matplotlib==3.11.2",
+    "numpy==2.5.3",
+]
+
+[project.optional-dependencies]
+shap = ["shap==0.52.0"]
+dev = ["pytest==9.1.1", "ruff==0.16.8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ei_model"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
