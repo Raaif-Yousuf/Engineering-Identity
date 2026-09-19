@@ -91,7 +91,7 @@ def build_model(input_dim: int, learning_rate: float = LEARNING_RATE) -> tf.kera
 
 
 def build_callbacks(checkpoint_path: str | None = None) -> list[Callback]:
-    """Same callback configuration as the original: EarlyStopping, ReduceLROnPlateau, ModelCheckpoint."""
+    """Same callbacks as the original: EarlyStopping, ReduceLROnPlateau, ModelCheckpoint."""
     callbacks: list[Callback] = [
         EarlyStopping(
             monitor="val_loss",
