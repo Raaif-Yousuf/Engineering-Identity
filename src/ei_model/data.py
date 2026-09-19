@@ -32,6 +32,15 @@ MODELING_VARIANTS: tuple[str, ...] = ("after", "before", "diff")
 PID_COL = "pid"
 EI_TARGET_COL = "ei"
 
+# Each variant is split into two completeness levels (see docs/data.md):
+#   'partial'  - the full cohort, no concept-map columns (matches the
+#                paper's 144/198/149-metric "partial" tables).
+#   'complete' - only participants whose concept map has been digitized,
+#                with the 44 extra concept-map columns added (matches the
+#                paper's 188-metric "complete" tables).
+# Files are named '<variant>_<completeness>.parquet'.
+COMPLETENESS_LEVELS: tuple[str, ...] = ("partial", "complete")
+
 # Valid range of the composite EI target, by variant. 'after'/'before' are
 # single-timepoint Whole scores; 'diff' is After-minus-Before and so has
 # double the range.
@@ -51,10 +60,21 @@ class UnknownVariantError(ValueError):
     """Raised when a variant name outside MODELING_VARIANTS is requested."""
 
 
+class UnknownCompletenessError(ValueError):
+    """Raised when a completeness level outside COMPLETENESS_LEVELS is requested."""
+
+
 def _check_variant(variant: str) -> None:
     if variant not in MODELING_VARIANTS:
         raise UnknownVariantError(
             f"Unknown variant {variant!r}; expected one of {MODELING_VARIANTS}."
+        )
+
+
+def _check_completeness(completeness: str) -> None:
+    if completeness not in COMPLETENESS_LEVELS:
+        raise UnknownCompletenessError(
+            f"Unknown completeness {completeness!r}; expected one of {COMPLETENESS_LEVELS}."
         )
 
 # Column-name patterns used to group features into families. Configurable:
@@ -128,24 +148,34 @@ def load_modeling_table(
 
 def load_variant(
     variant: str,
+    completeness: str = "partial",
     data_dir: Path | str | None = None,
     env_var: str = "EI_DATA_DIR",
 ) -> pd.DataFrame:
-    """Load one of the canonical, de-identified modeling tables ('after'/'before'/'diff').
+    """Load one of the canonical, de-identified modeling tables.
 
-    Reads `<data_dir>/<variant>.parquet`, where `data_dir` defaults to
-    `get_data_dir(env_var)`. Each table is keyed by a salted-hash 'pid'
-    column (see docs/data.md) and carries the composite EI target in an
-    'ei' column; the real Participant Code never appears in these files.
+    `variant` is one of MODELING_VARIANTS ('after'/'before'/'diff').
+    `completeness` is one of COMPLETENESS_LEVELS:
+      - 'partial' (default): the full cohort, no concept-map columns.
+      - 'complete': only participants with a digitized concept map, plus
+        the 44 concept-map columns (see the 'concept_map' feature family).
+
+    Reads `<data_dir>/<variant>_<completeness>.parquet`, where `data_dir`
+    defaults to `get_data_dir(env_var)`. Each table is keyed by a
+    salted-hash 'pid' column (see docs/data.md) and carries the composite
+    EI target in an 'ei' column; the real Participant Code never appears
+    in these files.
     """
     _check_variant(variant)
+    _check_completeness(completeness)
     resolved_dir = Path(data_dir).expanduser() if data_dir is not None else get_data_dir(env_var)
-    path = resolved_dir / f"{variant}.parquet"
+    filename = f"{variant}_{completeness}.parquet"
+    path = resolved_dir / filename
     table = pd.read_parquet(path)
 
     for required in (PID_COL, EI_TARGET_COL):
         if required not in table.columns:
-            raise KeyError(f"'{variant}.parquet' is missing the '{required}' column.")
+            raise KeyError(f"'{filename}' is missing the '{required}' column.")
     return table
 
 
