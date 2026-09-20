@@ -190,14 +190,104 @@ not just averaging over it:
    only depends on sample count), so the paired comparison against
    `original_ann` is exact for the folds it uses -- just 5 folds' worth of
    evidence instead of 25 for the ANN family specifically.
-2. **P4 runs no ANN models at all.** P4 already fans out to 8 dataset
-   configs; adding two Keras models on top was not affordable here. P4's
-   paired-comparison baseline is `random_forest`, not `original_ann` --
-   there is no original-ANN comparison for P4 in this pass.
-3. **crowd is not run** (see above) -- not merged yet, not a budget choice.
-4. **Tuning budgets are modest by design**: 15 RandomizedSearchCV
-   iterations, 3-fold inner CV, for both XGBoost and LightGBM. This is a
-   real nested-CV tuning loop, just a shallow one.
+2. **P4 runs a reduced 3-model set (mean, xgboost, original_ann), not the
+   full model list.** Revised mid-session (2026-09-20) once P4 was
+   reprioritized to run last: with 8 dataset configs already, `ridge`,
+   `elastic_net`, `random_forest`, `lightgbm`, `stacking`, and `crowd` are
+   not scored for P4 in this pass -- only the floor (`mean`), the best-tuned
+   boosted model (`xgboost`; see point 5 below for why `lightgbm` is
+   dropped), and `original_ann` (now included, at the same ann_cv-reduced
+   5x1 schedule as every other protocol -- this *fixes* an earlier version
+   of this deviation list, which had P4 running no ANN at all with
+   `random_forest` standing in as `paired_baseline`). `paired_baseline` for
+   P4 is `original_ann`, same as every other protocol.
+3. **crowd is not run in P4** (dropped in the reprioritization above; it
+   *is* run in P1/P2/P3/P3b -- see the next section for why it wasn't run
+   at all earlier in this same session).
+4. **Tuning budgets are modest by design**, and were cut further before this
+   session's runs: `RandomizedSearchCV` at `n_iter=8` (down from an earlier
+   planned 15), 3-fold inner CV, for both XGBoost and LightGBM; `improved_ann`
+   at a 1-seed "ensemble" (down from a planned 3), to fit five dataset-config
+   protocols in one session on a single, shared machine. Both are real
+   nested-CV/ensembling procedures, just shallower ones -- see the git
+   history of `configs/*.yaml` for the exact prior values.
+5. **Protocol run order was reprioritized mid-session** (2026-09-20) to
+   surface the headline P1-vs-P2 comparison first: actual order was P3b
+   (already in flight under the just-fixed code when the reprioritization
+   request arrived -- restarting it to strictly reorder would have thrown
+   away real, already-checkpointed progress for a few minutes' difference,
+   so it was left to finish), then P1, P2, P3 (re-run), P4. **If `lightgbm`
+   is dropped from a protocol's model list below, it's this same wall-clock
+   pressure**: `lightgbm` and `xgboost` are both tuned gradient-boosted
+   trees answering the same "does a tuned boosted model beat linear/RF"
+   question, so keeping only `xgboost` (already the `importance_model`
+   everywhere) is the cheaper way to keep that comparison without paying
+   for two tuned-boosting searches per dataset. Check each config's
+   `models:` list and this document's Results section for exactly which
+   protocols this applied to -- it is not applied uniformly by default.
+
+## Runtime stall: nested n_jobs oversubscription (found and fixed 2026-09-19)
+
+The first full run of `configs/true_prediction.yaml` (P3) hung for over an
+hour with `results/logs/true_prediction.log` completely silent (last
+`R2=...` line was `xgboost`, at 1004.0s; `lightgbm` never printed one) while
+the runner process (PID 12480) and its 16 spawned `loky` worker processes
+kept consuming real CPU (measured: ~50-65% each over repeated 10-15s
+sampling windows, total system CPU ~85%) -- not a classic zero-CPU deadlock,
+but a genuine non-progressing hang under real load. Root cause, confirmed by
+reading `src/ei_model/experiments/models.py`: `_lightgbm_search` (and
+`_xgboost_search`, and `stacking_spec`'s base estimators) wrapped an
+estimator constructed with `n_jobs=-1` **inside** a `RandomizedSearchCV(...,
+n_jobs=-1)`. `RandomizedSearchCV` at `n_jobs=-1` already spawns one process
+per `n_iter x inner_cv` fit (up to 16 on this machine); each of those
+processes then also tried to claim all 16 cores for LightGBM's/XGBoost's own
+internal threading. That double layer of `n_jobs=-1` oversubscribes the
+machine (16 processes x up to 16 threads each, competing for 16 cores),
+which manifested as XGBoost merely being ~4.5x slower than a single-layer
+run (1004s at the cut `n_iter=8` budget) and LightGBM specifically as a de
+facto hang (LightGBM's own threading is known to interact badly with
+process-based parallelism on Windows).
+
+**Fix** (`src/ei_model/experiments/models.py`): the inner estimator inside
+every `RandomizedSearchCV`/`StackingRegressor` now uses `n_jobs=1`, leaving
+exactly one parallelism layer (the outer search/stack). Standalone
+`random_forest_spec` is untouched (`n_jobs=-1`, no outer parallel wrapper,
+so no oversubscription there).
+
+**Two permanent safety nets added at the same time, not just this one-off
+fix**, since a hang or crash of *any* kind should never again take down an
+entire config's run:
+1. **Per-model wall-clock timeout** (`RunConfig.model_timeout_seconds`,
+   default 1200s / 20 min): `runner.py`'s `_run_model_scored` now runs each
+   (dataset, model) score in its own subprocess (`multiprocessing`, spawn
+   context) and kills the whole process tree (`taskkill /F /T` on Windows,
+   so orphaned `loky` grandchildren can't leak) if it doesn't finish in
+   time, recording that row as `available=False,
+   unavailable_reason="timeout: ..."` and moving on to the next model.
+2. **Incremental CSV checkpointing**: `run_config` now takes an `on_result`
+   callback invoked after *every* model (available, unavailable, errored, or
+   timed out), and `cli.py` wires this to rewrite `results/<name>.csv` after
+   each one, not just once at the very end. A kill, crash, or a model that
+   hits the timeout above no longer loses every row scored before it.
+
+**Consequence for this session's numbers**: P3 (`true_prediction`) had to be
+re-run from scratch after this fix, since the hung run produced no CSV
+(nothing had been checkpointed yet -- it predates fix #2). Every other
+protocol in the Results section below ran under the fixed code.
+
+**Also enabled by the same session's `feat/crowd-ann-model` merge (PR
+#13)**: `crowd` is now a real, importable model (`ei_model.models.crowd.
+CrowdANN`), not a permanent `available=False` stub. Its cost is dominated by
+feature count, not neuron count (every cascade layer re-consumes the raw
+input) -- the module's own docstring records a measured 189-architecture x
+1-replication run at 341s on 900 rows. Given that, `crowd` now: (a) defaults
+to `n_replications=1`, down from this harness's earlier planned default of
+10 (`RunConfig.crowd_replications`); (b) shares the ANN family's reduced
+5-fold x 1-repeat schedule via `effective_cv`, instead of the full 5x5; (c)
+is still subject to the 1200s per-dataset timeout above, so on the larger
+variants (`after`/`before`, ~1800-1900 rows) it may still time out and show
+`available=False, unavailable_reason="timeout: ..."` for some datasets --
+that itself is reported as a real, honest finding below rather than hidden.
 
 ## The MATLAB crowd baseline, for context
 

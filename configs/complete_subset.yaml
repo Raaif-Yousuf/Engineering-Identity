@@ -2,38 +2,48 @@
 # cohort (students whose hand-drawn concept map was digitized/coded), run
 # with and without the 44 concept-map columns, to isolate what the maps add.
 #
-# Deviation from the other protocols, documented in docs/experiments.md
-# "Runtime deviations from the spec": the ANN models (original_ann,
-# improved_ann) are NOT run here. P4 already multiplies out to 8 dataset
-# configs (3 variants x with/without CM for P2, plus 2 for P3), and adding
-# two more Keras fits per fold on top of that was not affordable on a single
-# CPU machine in this pass. paired_baseline is therefore random_forest, not
-# original_ann -- P4 has no paired comparison against the original ANN.
+# Reduced model set (changed 2026-09-20, mid-session, for wall-clock
+# budget): P4 already multiplies out to 8 dataset configs (3 variants x
+# with/without CM for P2, plus 2 for P3). Earlier in this session P4 ran the
+# full 8-model list minus ANN (no affordable way to add 2 more Keras fits on
+# top of 8 dataset configs). Reprioritized instead to the 3 most informative
+# models -- a floor (mean), the best-tuned boosted-tree model (xgboost;
+# lightgbm answers the same question and is dropped here, see
+# docs/experiments.md), and the original ANN (now affordable per-dataset at
+# the ann_cv-reduced 5x1 schedule below) -- which also fixes the earlier gap
+# that P4 had no ANN comparison at all. paired_baseline is therefore
+# original_ann, consistent with every other protocol.
 name: complete_subset
 protocol: P4
 variants: [after, before, diff]
 
 models:
   - mean
-  - ridge
-  - elastic_net
-  - random_forest
   - xgboost
-  - lightgbm
-  - stacking
-  - crowd
+  - original_ann
 
 cv:
   n_splits: 5
   n_repeats: 5
   random_state: 42
 
+# original_ann (like in every other protocol) is far more expensive per
+# fold than the tree/linear models, so it shares this reduced schedule --
+# see config.py's `effective_cv` and docs/experiments.md "Runtime
+# deviations from the spec".
+ann_cv:
+  n_splits: 5
+  n_repeats: 1
+  random_state: 42
+
 tuning:
-  n_iter: 15
+  n_iter: 8
   inner_cv: 3
 
+model_timeout_seconds: 1200
+
 random_state: 42
-paired_baseline: random_forest
+paired_baseline: original_ann
 importance_model: xgboost
 results_dir: results
 figures_dir: results/figures
@@ -42,5 +52,7 @@ notes: >
   restricted to each variant's concept-map-complete cohort) plus
   p4_p3_before_to_after_{with,without}_cm (P3, before-complete joined to
   after ei). Compare the with/without pairs to see what the 44 concept-map
-  columns add once the cohort is held fixed. No ANN models here -- see the
-  deviation note above.
+  columns add once the cohort is held fixed. Reduced model set (mean,
+  xgboost, original_ann only) -- see the deviation note above; ridge,
+  elastic_net, random_forest, lightgbm, stacking, and crowd are not scored
+  for P4 in this pass.

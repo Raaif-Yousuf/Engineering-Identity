@@ -82,8 +82,16 @@ def random_forest_spec(seed: int = 0) -> ModelSpec:
 def _xgboost_search(seed: int, n_iter: int, inner_cv: int) -> RandomizedSearchCV:
     from xgboost import XGBRegressor
 
+    # n_jobs=1 here, not -1: RandomizedSearchCV below already parallelizes
+    # across n_iter*inner_cv fits at n_jobs=-1. Letting XGBoost ALSO spawn a
+    # full-core thread pool inside every one of those loky worker processes
+    # oversubscribes the machine (n_iter*inner_cv processes x all-cores
+    # threads each) -- on Windows this measured as a ~4.5x-plus slowdown
+    # relative to xgboost's own (single-parallelism-layer) run, and for
+    # LightGBM's equivalent search below it manifested as a de facto hang
+    # (see docs/experiments.md "Runtime stall: nested n_jobs oversubscription").
     est = XGBRegressor(
-        n_jobs=-1, random_state=seed, objective="reg:squarederror", tree_method="hist"
+        n_jobs=1, random_state=seed, objective="reg:squarederror", tree_method="hist"
     )
     param_dist = {
         "estimator__n_estimators": randint(100, 400),
@@ -124,7 +132,9 @@ def xgboost_spec(
 def _lightgbm_search(seed: int, n_iter: int, inner_cv: int) -> RandomizedSearchCV:
     from lightgbm import LGBMRegressor
 
-    est = LGBMRegressor(n_jobs=-1, random_state=seed, verbosity=-1)
+    # n_jobs=1: see the matching comment in _xgboost_search -- the outer
+    # RandomizedSearchCV is the only parallelism layer here.
+    est = LGBMRegressor(n_jobs=1, random_state=seed, verbosity=-1)
     param_dist = {
         "estimator__n_estimators": randint(100, 400),
         "estimator__num_leaves": randint(7, 63),
@@ -240,16 +250,19 @@ def stacking_spec(seed: int = 0) -> ModelSpec:
     """A light stack of the fast base learners (ridge/RF/XGB), each with its own preprocessing."""
     from xgboost import XGBRegressor
 
+    # Base-estimator n_jobs=1: StackingRegressor(n_jobs=-1) below already
+    # fits the 3 base estimators x 5 inner CV folds in parallel; see the
+    # oversubscription note in _xgboost_search/_lightgbm_search above.
     ridge_pipe = pp.standard_pipeline(RidgeCV(alphas=RIDGE_ALPHAS))
     rf_pipe = pp.unscaled_pipeline(
-        RandomForestRegressor(n_estimators=200, min_samples_leaf=2, n_jobs=-1, random_state=seed)
+        RandomForestRegressor(n_estimators=200, min_samples_leaf=2, n_jobs=1, random_state=seed)
     )
     xgb_pipe = pp.unscaled_pipeline(
         XGBRegressor(
             n_estimators=200,
             max_depth=4,
             learning_rate=0.05,
-            n_jobs=-1,
+            n_jobs=1,
             random_state=seed,
             objective="reg:squarederror",
             tree_method="hist",
