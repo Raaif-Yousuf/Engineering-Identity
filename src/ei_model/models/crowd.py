@@ -1,8 +1,8 @@
 """Faithful Python port of the lab's MATLAB "wisdom of the crowd" ANN baseline.
 
 Ported from `populateArchitectures.m`, `trainArchPop_v5_batch.m`, and
-`analyzeANN_v5_batch.m` (extracted from the lab's MATLAB toolbox archive,
-`UGR SP25/MATLAB FILE PAVAN.zip`; driver:
+`analyzeANN_v5_batch.m` (extracted from the lab's MATLAB toolbox archive in
+the UGR SP25 data dump; driver:
 `ANN_Prediction_v2.m`/`v3.m`). The original pipeline: enumerate 189
 cascade-forward architectures (<=3 hidden layers, <=15 neurons total),
 train `newcf` nets with `trainlm` (Levenberg-Marquardt) 100 times per
