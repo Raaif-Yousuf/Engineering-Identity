@@ -81,6 +81,28 @@ Deviations from the MATLAB implementation (documented per project rules):
 7. **No `showWindow`/MATLAB-GUI-only behavior** is applicable (this is a
    headless port).
 
+**Performance note (measured, not estimated):** on a synthetic 900-row x
+140-feature matrix, 189 architectures x 1 replication (189 nets total,
+`n_jobs=-1` on a 16-logical-core Windows dev machine) took 341 s (~5.7
+minutes) wall-clock, with nets stopping after 2.2 epochs on average. The
+task-specified full benchmark (189 architectures x 5 replications = 945
+nets, on a 1,800-row x 140-feature matrix) was attempted first and did
+not finish within a practical wall-clock budget (over 90 minutes, still
+running, on the same machine): even with the analytic Jacobian in (1),
+`scipy.optimize.least_squares(method="trf")`'s own internal linear
+algebra (solving the trust-region subproblem each iteration) costs
+`O(n_params^2 * n_train_samples)`-ish per call, and cascade nets at 140
+features have `n_params` in the ~300-2,350 range across the 189
+architectures regardless of how neurons are split across layers (every
+layer re-consumes the raw 140-column input). This is a genuine
+scalability limitation of using MINPACK/TRF-style dense solvers for
+cascade nets at realistic EI feature counts, not just a slow benchmark
+machine -- it should inform whether/how this module is run against the
+real ~1,800 x 144 dataset (e.g. fewer replications, a feature-reduced
+input, or a future analytic-Hessian/streaming solver). Reduce
+`n_replications` (and, for quick checks, pass a short `architectures`
+list) to control wall-clock cost; both are constructor parameters.
+
 None of the above are expected to reproduce the MATLAB baseline's exact
 numeric predictions -- they reproduce its *architecture, topology, and
 training protocol* closely enough to test whether the "wisdom of the
