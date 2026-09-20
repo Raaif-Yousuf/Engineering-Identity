@@ -270,16 +270,21 @@ def stacking_spec(seed: int = 0) -> ModelSpec:
 
 
 def crowd_spec(seed: int = 0, replications: int = 10) -> ModelSpec:
-    """Wisdom-of-the-crowd model, once `ei_model.models.crowd` lands on main.
+    """Wisdom-of-the-crowd model, wired against `ei_model.models.crowd.CrowdANN`.
 
-    Not editable here (owned by a parallel worker); this only wires it in,
-    against the `CrowdANN(BaseEstimator, RegressorMixin)` sklearn-style API
-    (`n_replications`, `random_state`, `n_jobs`) that module exposes as of
-    its in-progress `feat/crowd-ann-model` branch. `replications` defaults to
-    10 rather than the MATLAB original's 100 to keep this CPU run sane --
-    pass 100 explicitly once timing allows. No external scaling: CrowdANN
-    does its own internal MapMinMax normalization, mirroring the MATLAB
-    original's `mapminmax`.
+    Uses `CrowdANN`'s sklearn-style API (`n_replications`, `random_state`,
+    `n_jobs`). `replications` defaults to 10 rather than the MATLAB
+    original's 100 to keep this CPU run sane -- pass 100 explicitly once
+    timing allows. No external scaling: CrowdANN does its own internal
+    MapMinMax normalization, mirroring the MATLAB original's `mapminmax`.
+
+    Caution (measured, see `ei_model.models.crowd`'s module docstring): all
+    189 architectures carry a parameter count dominated by the raw feature
+    count, not neuron count. At the real EI feature widths (~140 columns),
+    each replication of the full architecture sweep took minutes even with
+    an analytic Jacobian; running this against the real dataset likely
+    wants a low `replications` count and/or a reduced feature set, not the
+    full 100-replication ensemble.
     """
     try:
         from ei_model.models.crowd import CrowdANN
