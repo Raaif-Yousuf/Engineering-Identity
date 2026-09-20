@@ -72,11 +72,18 @@ def test_improved_ann_spec_tiny_epochs(tiny_xy):
     _check_predictions(preds, len(X_test))
 
 
-def test_crowd_spec_unavailable_before_merge():
-    spec = m.crowd_spec()
-    assert spec.available is False
-    assert spec.fit_predict is None
-    assert spec.unavailable_reason
+def test_crowd_spec_available_and_fits(tiny_xy):
+    # ei_model.models.crowd landed (feat/crowd-ann-model merged): crowd_spec
+    # should now import CrowdANN and fit/predict like every other model spec.
+    X, y = tiny_xy
+    spec = m.crowd_spec(seed=0, replications=1)
+    assert spec.available is True
+    assert spec.fit_predict is not None
+    assert spec.unavailable_reason is None
+
+    X_train, X_test = X.iloc[:30], X.iloc[30:]
+    preds = spec.fit_predict(X_train, y.iloc[:30], X_test)
+    _check_predictions(preds, len(X_test))
 
 
 def test_build_model_spec_unknown_key_raises():
