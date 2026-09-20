@@ -1,7 +1,7 @@
 """Concept-map complexity metrics (cMet_01..cMet_29).
 
 Faithful Python (networkx/numpy) port of the MATLAB toolbox found in the
-owner's UGR SP25 data dump ("MATLAB FILE PAVAN.zip"), specifically:
+owner's UGR SP25 data dump, the lab's MATLAB archive, specifically:
 
   - `generate_complexity.m` / `compag.m`: reads a per-participant concept-map
     workbook (a directed "assembly" of Source -> Sink relations between

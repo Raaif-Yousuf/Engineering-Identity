@@ -7,7 +7,7 @@ toolbox rather than re-derived from scratch.
 
 ## Source
 
-Found in `MATLAB FILE PAVAN.zip` (UGR SP25 data dump; not present in this
+Found in the lab's MATLAB archive (UGR SP25 data dump; not present in this
 repo). `ANN_Prediction_v3.m` confirms `cMet_01..cMet_29` as the model's
 concept-map input vector name. The call chain that produces it from a
 concept-map workbook:
