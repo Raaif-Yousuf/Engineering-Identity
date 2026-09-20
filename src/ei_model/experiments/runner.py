@@ -74,7 +74,20 @@ def _model_worker(conn, X, y, model_key, seed, spec_kwargs, n_splits, n_repeats,
         )
         conn.send({"status": "ok", "summary": summary, "scores": scores})
     except Exception as exc:  # noqa: BLE001 - report every crash, never let the pipe go silent
-        conn.send({"status": "error", "reason": f"{exc!r}\n{traceback.format_exc()}"})
+        try:
+            conn.send({"status": "error", "reason": f"{exc!r}\n{traceback.format_exc()}"})
+        except Exception:  # noqa: BLE001 - the pipe itself may already be gone (see below)
+            # Observed 2026-09-20: a joblib/loky resource-tracker race deep in
+            # a long tuning run (see docs/experiments.md "Resource-tracker
+            # crash") can raise a *second*, unrelated exception (e.g.
+            # BrokenPipeError) right here, while we're already reporting the
+            # first one. There is nothing more this worker can do to tell the
+            # parent what happened -- exiting with a non-zero code is enough,
+            # since the parent treats "child died without sending a result"
+            # as its own error outcome (see `_run_model_scored_once`). Do not
+            # let a failed send crash this except-block with an unhandled
+            # exception of its own.
+            pass
     finally:
         conn.close()
 
@@ -101,7 +114,7 @@ def _kill_process_tree(proc) -> None:
         proc.join()
 
 
-def _run_model_scored(
+def _run_model_scored_once(
     dataset: "pr.ProtocolDataset",
     model_key: str,
     seed: int,
@@ -118,6 +131,9 @@ def _run_model_scored(
     non-progressing for over an hour on Windows -- see
     docs/experiments.md) is recorded as "timeout" and the run continues to
     the next model, instead of blocking every later dataset/model.
+
+    This is a single attempt -- see `_run_model_scored` for the retry-once
+    wrapper that calls this and handles a crashed attempt.
     """
     ctx = mp.get_context("spawn")
     parent_conn, child_conn = ctx.Pipe(duplex=False)
@@ -149,14 +165,75 @@ def _run_model_scored(
     if parent_conn.poll():
         try:
             return parent_conn.recv()
-        except EOFError:
-            return {"status": "error", "reason": "worker closed its pipe without a result"}
+        except Exception as exc:  # noqa: BLE001 - see docstring below for why this must be broad
+            # Observed 2026-09-20 (see docs/experiments.md "Resource-tracker
+            # crash"): a joblib/loky resource-tracker race deep in a long
+            # tuning run can raise a TerminatedWorkerError inside the
+            # worker's own except-block, at the exact moment it's trying to
+            # `conn.send()` that error back -- so the pipe can close mid
+            # write and leave a truncated frame. `parent_conn.recv()` then
+            # raises something other than `EOFError` (an `OSError` /
+            # `ConnectionResetError` / a pickle error, depending on exactly
+            # where the write was cut off). The original code here only
+            # caught `EOFError`, so this second, unrelated exception
+            # propagated straight out of `_run_model_scored`, out of
+            # `run_config`'s loop, and killed the *entire* run (this is
+            # exactly what took down `replication.yaml`'s P1 run ~103
+            # minutes in, mid `p1_diff`/`lightgbm`, per
+            # `results/logs/replication.log`) -- not just this one model.
+            # Any receive failure here means the same thing either way: the
+            # worker died without giving us a usable result, so treat it
+            # like any other crash and let the caller retry/continue.
+            return {
+                "status": "error",
+                "reason": f"failed to read worker result ({exc!r}) -- worker likely crashed",
+            }
     return {
         "status": "error",
         "reason": (
             f"worker exited (code={proc.exitcode}) without sending a result -- likely crashed"
         ),
     }
+
+
+def _run_model_scored(
+    dataset: "pr.ProtocolDataset",
+    model_key: str,
+    seed: int,
+    spec_kwargs: dict,
+    cv: CvConfig,
+    timeout_seconds: int,
+    logger: RunLogger,
+    max_retries: int = 1,
+) -> dict:
+    """Score one model on one dataset, retrying once (by default) on a crash.
+
+    Only a "error" outcome (the worker process crashed or its result
+    couldn't be read -- see `_run_model_scored_once`) is retried. "timeout"
+    and "unavailable" are not: a timeout means the model is genuinely too
+    slow for the budget (retrying just burns another `timeout_seconds` for
+    no benefit), and "unavailable" means the model spec itself refused to
+    build (e.g. a missing optional dependency), which a retry can't fix
+    either. Each retry gets a brand-new subprocess (and therefore a brand
+    new resource tracker), which is exactly the reset that gives a
+    transient loky/resource-tracker race (docs/experiments.md
+    "Resource-tracker crash") a real chance of not recurring.
+    """
+    outcome = _run_model_scored_once(
+        dataset, model_key, seed, spec_kwargs, cv, timeout_seconds, logger
+    )
+    attempt = 1
+    while outcome["status"] == "error" and attempt <= max_retries:
+        _log(
+            logger,
+            f"  {model_key}: crashed on attempt {attempt} ({outcome.get('reason', '')[:200]}) "
+            f"-- retrying in a fresh subprocess",
+        )
+        outcome = _run_model_scored_once(
+            dataset, model_key, seed, spec_kwargs, cv, timeout_seconds, logger
+        )
+        attempt += 1
+    return outcome
 
 
 def run_config(
@@ -242,10 +319,24 @@ def run_config(
 
             cv = config.effective_cv(spec.family)
             start = time.perf_counter()
-            outcome = _run_model_scored(
-                dataset, model_key, config.random_state, spec_kwargs, cv,
-                config.model_timeout_seconds, logger,
-            )
+            try:
+                outcome = _run_model_scored(
+                    dataset, model_key, config.random_state, spec_kwargs, cv,
+                    config.model_timeout_seconds, logger,
+                )
+            except Exception as exc:  # noqa: BLE001 - a whole protocol run must never die here
+                # Final safety net: `_run_model_scored`/`_run_model_scored_once`
+                # already handle the specific crash class found 2026-09-20
+                # (docs/experiments.md "Resource-tracker crash"), but this
+                # catches anything else unforeseen in the parent-side
+                # subprocess bookkeeping (Pipe/Process management is OS-level
+                # code, not pure Python we fully control) so one bad
+                # (dataset, model) pair can never again take the rest of the
+                # sequence down with it.
+                outcome = {
+                    "status": "error",
+                    "reason": f"unexpected error managing worker subprocess: {exc!r}",
+                }
             elapsed = time.perf_counter() - start
 
             if outcome["status"] != "ok":
