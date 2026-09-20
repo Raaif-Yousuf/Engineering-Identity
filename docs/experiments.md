@@ -119,13 +119,14 @@ so the comparison is apples-to-apples:
 - **stacking**: `StackingRegressor` over ridge + random forest + XGBoost
   (each with its own preprocessing), final estimator RidgeCV.
 - **crowd**: the MATLAB wisdom-of-the-crowd reimplementation
-  (`ei_model.models.crowd`), owned by a parallel worker and not edited here.
-  **Not included in any of the run results below** -- as of this writing it
-  had not merged to `main`. The registry (`ei_model.experiments.models.crowd_spec`)
-  already wires it in behind a try/import, defaulting to 10 replications
-  instead of the MATLAB original's 100 to keep a CPU run sane; re-run with
-  `replications=100` once timing allows, and say so if it still isn't
-  affordable.
+  (`ei_model.models.crowd.CrowdANN`, merged via PR #13), run at
+  `n_replications=1` (`crowd_replications` in each config) instead of the
+  MATLAB original's 100, and subject to the same `model_timeout_seconds`
+  every model gets. It is included in P1, P2, P3, and P3b (not P4, by
+  design). **It only finished on the single smallest dataset it was
+  pointed at (`p2_diff`)** -- every other attempt timed out. See "Why
+  this harness's own `crowd` model can't be run at MATLAB's scale" below
+  for the measured cost and why.
 
 I used `RandomizedSearchCV` rather than Optuna for the tuned tree models --
 both were allowed by the spec, and `RandomizedSearchCV` needed no new
@@ -428,14 +429,257 @@ model is not supported by this or any other recovered artifact (see
 -0.075 as the best-evidenced number for what the original MATLAB approach
 actually achieved on data of this kind.
 
+## Why this harness's own `crowd` model can't be run at MATLAB's scale
+
+`ei_model.models.crowd.CrowdANN` is a real, importable, tested
+reimplementation (PR #13) of the MATLAB architecture-sweep-and-average
+design (189 cascade-forward architectures x N replications, averaged). It
+is wired into every protocol that includes it (P1, P2, P3, P3b -- not P4,
+by design) at a deliberately reduced `n_replications=1`
+(`RunConfig.crowd_replications`), one-tenth of the harness's own originally
+planned default of 10, and 1/100th of the MATLAB original's 100
+replications, specifically to see whether it can finish at all within the
+`model_timeout_seconds=1200` (20 min) budget every model gets.
+
+Measured, not estimated, directly from the real production runs
+(`results/replication.csv`, `results/no_leakage.csv`,
+`results/true_prediction.csv`, `results/persistence_baseline.csv`):
+
+| Dataset | n_rows | n_features | crowd result at n_replications=1 (189 nets) |
+|---|---:|---:|---|
+| p1_after | 1789 | 144 | timed out (killed at 1204.2s) |
+| p1_before | 1929 | 198 | timed out (killed at 1202.2s) |
+| p1_diff | 1012 | 149 | timed out (killed at 1204.0s) |
+| p2_after | 1789 | 137 | timed out (killed at 1202.2s) |
+| p2_before | 1929 | 191 | timed out (killed at 1202.0s) |
+| **p2_diff** | **1012** | **142** | **finished: R^2 = -0.178 +/- 0.091, 963.3s** |
+| **p3_before_to_after** | **1012** | **191** | **finished: R^2 = -0.052 +/- 0.085, 1139.5s** |
+| **p3b_before_to_after** | **1012** | **192** | **finished: R^2 = 0.121 +/- 0.069, 1116.9s** |
+
+The pattern is clear once all three completions are in the same table:
+`crowd` only ever finished on the three ~1012-row datasets (the `diff` /
+`before_to_after` variants); every ~1789-1929-row dataset (`after`,
+`before`) timed out regardless of feature count (137-198 features across
+both groups). Row count, not feature count alone, is the dominant driver
+of wall-clock cost here -- though the module's own docstring is still
+correct that parameter count (and therefore cost) scales with feature
+count, not neuron count, since every cascade layer re-consumes the raw
+input; both effects are real, and row count is the one that happens to
+separate "finishes in ~950-1150s" from "times out at 1200s" for the
+datasets actually tried.
+
+**Extrapolated cost of a MATLAB-parity run (100 replications instead of
+1).** Scaling the slowest of the three real completions (`p3_before_to_after`,
+1139.5s) linearly with replication count is justified here because 189
+architectures already exceeds this machine's core count at `n_jobs=-1`, so
+adding replications queues more of the same work rather than changing the
+parallelism regime. That gives 1139.5 x 100 = 113,950s, **about 31.7 hours
+for one dataset** -- and it's one of the cheapest three tried. The other
+five (larger) datasets already time out at *one* replication, so each
+would cost more than that, not less. Running `crowd` at MATLAB parity (100
+replications) across all 8 P1/P2/P3/P3b dataset variants would cost on the
+order of 250+ hours (more than 10 days) of continuous single-machine
+compute: outside any practical budget for this project.
+
+**Conclusion, stated plainly.** The crowd model cannot be evaluated on
+equal terms with every other model in this harness (all of which finish in
+seconds to a few hundred seconds) within a practical time budget. The
+three honest numbers available (`p2_diff` -0.178, `p3_before_to_after`
+-0.052, `p3b_before_to_after` +0.121, all at 1/100th the original
+replication count) are inconsistent in sign and don't support a single
+summary claim about how the reimplementation performs -- they are real
+measurements, but only three, and only at a fraction of the intended
+ensemble size. They are broadly consistent with the MATLAB original's own
+poor held-out performance (R^2 = -0.075) in the sense that none of the four
+numbers together suggest a strong, reliable model, but this is not a fair
+apples-to-apples comparison to either MATLAB (different replication count,
+different, much narrower, feature set) or to this harness's other models (a
+tiny fraction of their compute budget). Every other `crowd` row in the
+tables below is `available=False, unavailable_reason="timeout: ..."` and
+should be read as "not evaluable within budget," not as "performs badly
+there."
+
 ## Results
 
-<!-- Filled in from results/*.csv after each protocol's run. See that
-directory for the exact numbers this table summarizes; nothing here is
-hand-typed. -->
+Full per-protocol tables, from `results/*.csv` (nothing below is
+hand-typed or estimated). "vs original_ann" is the paired comparison over
+the 5 folds `original_ann` itself was scored on (`ann_cv`'s reduced
+schedule -- see "Runtime deviations" above): fraction of those 5 folds
+where the challenger's R^2 beat `original_ann`'s, and the two-sided
+Wilcoxon signed-rank p-value on the paired per-fold differences. At n=5
+matched folds, p=0.0625 is the smallest p-value the test can produce (all 5
+folds agree), so it recurs often below; it is not a computation error.
+Comparisons left blank happened when `original_ann`'s own row for that
+dataset was a *carried-over* (resumed, not freshly scored) row, so no
+fold-level scores existed to pair against in that run -- documented in
+"Resuming a partial run" below, and visible directly in `p1_diff` (P1,
+crashed mid-run and resumed) and every non-`original_ann`/`mean`/`ridge`/
+`elastic_net`/`random_forest` model in P3b (5 rows carried over from an
+earlier session, only `xgboost`/`improved_ann`/`stacking`/`crowd` freshly
+scored this run).
 
-*(placeholder -- populated once `results/*.csv` exist for all four
-protocols; see the PR that adds them.)*
+### P1: replication (includes identity-subscale proxy items)
+
+| Model | p1_after (n=1789, 144 feat) | p1_before (n=1929, 198 feat) | p1_diff (n=1012, 149 feat) |
+|---|---:|---:|---:|
+| mean | -0.004 +/- 0.005 | -0.002 +/- 0.002 | -0.008 +/- 0.009 |
+| ridge | 0.401 +/- 0.035 | 0.380 +/- 0.041 | 0.033 +/- 0.036 |
+| elastic_net | 0.404 +/- 0.034 | 0.392 +/- 0.041 | 0.033 +/- 0.027 |
+| random_forest | 0.400 +/- 0.040 | 0.352 +/- 0.034 | 0.022 +/- 0.036 |
+| xgboost | 0.400 +/- 0.041 | 0.372 +/- 0.039 | 0.005 +/- 0.050 |
+| lightgbm | 0.385 +/- 0.040 | 0.351 +/- 0.039 | -0.002 +/- 0.038 |
+| original_ann | 0.281 +/- 0.027 | 0.252 +/- 0.076 | -0.054 +/- 0.069 |
+| improved_ann | 0.340 +/- 0.038 | 0.326 +/- 0.079 | -0.030 +/- 0.061 |
+| **stacking** | **0.417 +/- 0.040** | **0.387 +/- 0.042** | **0.029 +/- 0.026** |
+| crowd | unavailable (timeout) | unavailable (timeout) | unavailable (timeout) |
+
+vs original_ann: every challenger beats it in 5/5 matched folds
+(p=0.0625) on `p1_after`/`p1_before`. On `p1_diff`, only `ridge`/
+`elastic_net`/`random_forest` (4/5 folds, p=0.125-0.1875) and `xgboost`
+(3/5, p=0.3125) have a comparison at all -- `lightgbm`/`improved_ann`/
+`stacking`/`crowd` were scored in the post-crash resumed run and
+`original_ann`'s fold scores from the pre-crash run weren't available to
+pair against (the blank-comparison caveat above, concretely).
+
+### P2: no proxy items (identity-subscale proxy items excluded -- the honest, leakage-free number)
+
+| Model | p2_after (n=1789, 137 feat) | p2_before (n=1929, 191 feat) | p2_diff (n=1012, 142 feat) |
+|---|---:|---:|---:|
+| mean | -0.004 +/- 0.005 | -0.002 +/- 0.002 | -0.008 +/- 0.009 |
+| ridge | 0.274 +/- 0.030 | 0.267 +/- 0.042 | 0.013 +/- 0.031 |
+| elastic_net | 0.281 +/- 0.029 | 0.276 +/- 0.043 | 0.014 +/- 0.020 |
+| random_forest | 0.269 +/- 0.031 | 0.241 +/- 0.046 | 0.004 +/- 0.035 |
+| xgboost | 0.283 +/- 0.031 | 0.266 +/- 0.046 | -0.015 +/- 0.049 |
+| original_ann | 0.186 +/- 0.029 | 0.153 +/- 0.066 | -0.100 +/- 0.067 |
+| improved_ann | 0.242 +/- 0.034 | 0.228 +/- 0.085 | -0.033 +/- 0.032 |
+| **stacking** | **0.294 +/- 0.030** | **0.278 +/- 0.050** | 0.012 +/- 0.023 |
+| crowd | unavailable (timeout) | unavailable (timeout) | -0.178 +/- 0.091 |
+
+`crowd`'s only completion anywhere in P1/P2 was `p2_diff` (963.3s, just
+inside the 1200s budget) -- see the crowd-cost section above for the full
+comparison across every dataset it was pointed at, including its two other
+completions in P3/P3b. vs original_ann: every challenger beats it 5/5
+(p=0.0625) on `p2_after`/`p2_before`. On `p2_diff`, all challengers except
+`xgboost` beat it in 5/5 folds (p=0.0625); `xgboost` and `crowd` beat it
+4/5 (p=0.0625) and `improved_ann` 3/5 (p=0.3125) -- `p2_diff` is uniformly
+the hardest dataset in this protocol.
+
+**Headline finding: P1 -> P2.** Removing the 7-item proxy block drops the
+best model's R^2 from 0.417 to 0.294 on the `after` variant (0.387 ->
+0.278 on `before`) -- a real, substantial, expected drop. This is the
+single largest effect in this entire study, larger than any
+model-architecture choice.
+
+### P3: true prediction (before -> after, no identity block; n=1012, 191 features)
+
+| Model | R^2 mean +/- sd | vs original_ann (frac. improved / Wilcoxon p, n=5) |
+|---|---:|---|
+| mean | -0.008 +/- 0.010 | 0.4 / 0.8125 |
+| ridge | 0.106 +/- 0.041 | 1.0 / 0.0625 |
+| elastic_net | 0.106 +/- 0.039 | 1.0 / 0.0625 |
+| random_forest | 0.106 +/- 0.049 | 1.0 / 0.0625 |
+| xgboost | 0.109 +/- 0.054 | 1.0 / 0.0625 |
+| improved_ann | 0.062 +/- 0.062 | 1.0 / 0.0625 |
+| **stacking** | **0.115 +/- 0.051** | 1.0 / 0.0625 |
+| crowd | -0.052 +/- 0.085 | 0.4 / 0.625 |
+| original_ann | -0.018 +/- 0.079 | (baseline) |
+
+This is the only protocol here with a genuine temporal gap between
+features and target, and it shows: even the best model (`stacking`,
+R^2=0.115) explains a small fraction of end-of-semester identity from
+start-of-semester data alone. `original_ann` is negative (worse than
+predicting the mean). `crowd` finished this time (1139.5s, just inside the
+1200s budget) at R^2=-0.052 -- worse than every non-baseline model, and
+its comparison to `original_ann` (0.4/0.625) is not significant.
+
+### P3b: persistence baseline (P3's features + before-semester ei; n=1012, 192 features)
+
+| Model | R^2 mean +/- sd | vs original_ann |
+|---|---:|---|
+| mean | -0.008 +/- 0.010 | 0.0 / 0.0625 |
+| ridge | 0.222 +/- 0.047 | 1.0 / 0.0625 |
+| **elastic_net** | **0.288 +/- 0.049** | 1.0 / 0.0625 |
+| random_forest | 0.281 +/- 0.057 | 1.0 / 0.0625 |
+| xgboost | 0.273 +/- 0.056 | blank (see caveat) |
+| improved_ann | 0.080 +/- 0.059 | blank (see caveat) |
+| stacking | 0.284 +/- 0.057 | blank (see caveat) |
+| crowd | 0.121 +/- 0.069 | blank (see caveat) |
+| original_ann | 0.136 +/- 0.065 | (baseline; a carried-over row this run) |
+
+**P3 vs. P3b, the "does knowing where a student started beat genuine
+prediction" question**: yes, clearly. Adding one column (the student's own
+before-semester EI score) takes the best model from R^2=0.115 (P3) to
+R^2=0.288 (P3b, `elastic_net`, narrowly ahead of `stacking`'s 0.284) --
+more than double. Most of what looks like "predicting identity change"
+in P3 is not upstream signal about *why* identity changes; a large part of
+it is well explained by "the student already had a stable identity level
+at the start of the semester," a persistence effect, not a genuinely new
+prediction. `xgboost`/`improved_ann`/`stacking`/`crowd`'s comparisons
+against `original_ann` are blank because `original_ann`'s row here was
+carried over from an earlier session (5/10 rows were already checkpointed
+before this session's run resumed the remaining `xgboost`/`improved_ann`/
+`stacking`/`crowd`) -- a concrete instance of the caveat under "Resuming a
+partial run" below, not a missing computation.
+
+### P4: complete subset (concept-map-complete cohort, with/without concept-map columns; reduced model set)
+
+| Dataset | n | mean | xgboost | original_ann | xgboost vs original_ann |
+|---|---:|---:|---:|---:|---|
+| p4_p2_after_no_cm | 1074 | -0.006 +/- 0.008 | 0.272 +/- 0.055 | 0.150 +/- 0.042 | 1.0 / 0.0625 |
+| p4_p2_after_with_cm | 1074 | -0.006 +/- 0.008 | 0.275 +/- 0.050 | 0.151 +/- 0.017 | 1.0 / 0.0625 |
+| p4_p2_before_no_cm | 1284 | -0.004 +/- 0.005 | 0.259 +/- 0.046 | 0.173 +/- 0.071 | 1.0 / 0.0625 |
+| p4_p2_before_with_cm | 1284 | -0.004 +/- 0.005 | 0.256 +/- 0.053 | 0.134 +/- 0.098 | 1.0 / 0.0625 |
+| p4_p2_diff_no_cm | 479 | -0.012 +/- 0.017 | -0.040 +/- 0.066 | -0.086 +/- 0.094 | 0.8 / 0.4375 |
+| p4_p2_diff_with_cm | 479 | -0.012 +/- 0.017 | -0.050 +/- 0.056 | -0.076 +/- 0.101 | 0.4 / 1.0 |
+| p4_p3_before_to_after_no_cm | 714 | -0.007 +/- 0.006 | 0.133 +/- 0.045 | -0.011 +/- 0.059 | 1.0 / 0.0625 |
+| p4_p3_before_to_after_with_cm | 714 | -0.007 +/- 0.006 | 0.122 +/- 0.059 | -0.070 +/- 0.075 | 1.0 / 0.0625 |
+
+**Do the 44 concept-map columns help, holding the cohort fixed?** No,
+not measurably. `xgboost` with concept-map features beats without by
++0.003 on `after`, but *loses* by -0.003 on `before`, -0.010 on `diff`, and
+-0.011 on `before_to_after` -- differences on the order of the run-to-run
+noise (r2_std is 0.05-0.06 on every one of these datasets), not a
+consistent signal in either direction. `original_ann` shows the same
+pattern (mixed sign, small magnitude). The concept-map complexity metrics
+do not add usable predictive signal beyond what the survey/definition
+features already provide, on this cohort and this feature encoding.
+
+### Overall best model and its feature-family importance
+
+`stacking` (ridge + random forest + XGBoost, RidgeCV final estimator) is
+the best or tied-for-best model in P1, P2, and P3, and second-best by a
+margin smaller than one standard deviation in P3b (`elastic_net` 0.288 vs.
+`stacking` 0.284). It is the single most consistent top performer across
+this study. Its permutation-importance-by-feature-family breakdown is
+reported on `p2_after` (the best-scoring *honest*, leakage-free dataset it
+was run on, R^2=0.294) rather than `p1_after` (higher, R^2=0.417, but
+inflated by the identity-survey proxy block, which would trivially
+dominate the chart the same way it dominates `replication_importance.csv`)
+-- see `results/best_model_stacking_importance.csv` /
+`results/figures/best_model_stacking_importance.png`:
+
+| Feature family | Importance (sum of permutation R^2 drop) |
+|---|---:|
+| **self_identification** | **0.177** |
+| experiences (curricular/co-curricular/extracurricular) | 0.056 |
+| career_achievements | 0.019 |
+| demographics | 0.014 |
+| influences | 0.010 |
+| definitions_ed | 0.003 |
+| keywords_skey | 0.002 |
+| role_er | -0.002 |
+
+`self_identification` dominates by an order of magnitude over every other
+family -- consistent with the same ordering `xgboost`'s own per-protocol
+importance chart shows for P2 (`no_leakage_importance.csv`). The
+concept-map/keyword/definition families contribute little to nothing
+(`role_er` is slightly negative, i.e. permuting it very slightly *helped*,
+within noise of zero).
+
+See `results/figures/summary_r2_by_protocol.png` /
+`results/summary_r2_by_protocol.csv` for the cross-protocol view: each
+protocol's best model vs. `original_ann`, averaged across that protocol's
+datasets, with error bars.
 
 ## Limitations not addressed in this pass
 
@@ -443,6 +687,32 @@ protocols; see the PR that adds them.)*
   (about 79% first-year); `Year` is included as an ordinary feature in every
   protocol, but CV folds are not stratified by it, and no per-year R^2
   breakdown is reported. Left for a follow-up rather than done partially.
+- **Predicting *change* in identity over a semester is close to
+  unpredictable for every model tried, not just the weak ones.** P1's
+  `diff` variant and P2's `diff` variant (identity `after - before`) are
+  the hardest dataset in every protocol that includes them: best R^2 is
+  0.029 (P1) and 0.014 (P2) -- both barely above the `mean` floor's
+  -0.008, and every model including `stacking` clusters within about 0.05
+  R^2 of zero. P3 (genuine before -> after prediction, no `ei_before`
+  feature) tops out at R^2=0.115. Only P3b, which is handed the student's
+  own before-semester score directly, reaches a clearly non-trivial R^2
+  (0.288) -- and that is a persistence effect ("this student already had a
+  stable identity level"), not evidence that semester-over-semester *change*
+  itself is predictable from the available features. Taken together: this
+  cohort's engineering-identity *change* has little to no signal in any
+  survey/definition/concept-map feature set tried here, for any of the ten
+  model architectures tried, tuned or not. This is a property of the
+  prediction target and this feature set, not a failure of any one model.
+- **Concept-map features (44 columns) show no measurable contribution**
+  once the cohort is held fixed (P4, "Do the 44 concept-map columns help"
+  above) -- differences between with/without runs are within run-to-run
+  noise in both directions.
+- **The `crowd` model could only be evaluated on 3 of the 8 dataset
+  variants it was pointed at**, each at 1/100th its intended replication
+  count, and cannot be run at MATLAB parity within any practical time
+  budget on this hardware (see "Why this harness's own `crowd` model can't
+  be run at MATLAB's scale" above). Its three real numbers should not be
+  read as a confident characterization of the reimplementation's quality.
 
 ## Reproducing this
 
