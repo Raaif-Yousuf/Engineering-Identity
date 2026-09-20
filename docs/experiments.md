@@ -289,6 +289,120 @@ variants (`after`/`before`, ~1800-1900 rows) it may still time out and show
 `available=False, unavailable_reason="timeout: ..."` for some datasets --
 that itself is reported as a real, honest finding below rather than hidden.
 
+## Resource-tracker crash: unhandled parent-side exception on a crashed model worker (found and fixed 2026-09-20)
+
+`replication.yaml` (P1) died about 103 minutes into its run, mid `p1_diff`
+right after `lightgbm`'s tuning search, with the top-level
+`python -m ei_model.experiments run` process itself exiting non-zero --
+not just one model marked unavailable, the *whole* config run stopped,
+losing P1's remaining models for `p1_diff` (`improved_ann`, `stacking`,
+`crowd` never ran for that variant; `p1_after`/`p1_before` were unaffected,
+since incremental checkpointing had already written their rows).
+`results/logs/replication.log` shows the immediate trigger:
+
+```
+joblib.externals.loky.process_executor.TerminatedWorkerError: A worker
+process managed by the executor was unexpectedly terminated. ...
+...
+File ".../ei_model/experiments/runner.py", line 77, in _model_worker
+    conn.send({"status": "error", "reason": f"{exc!r}\n{traceback.format_exc()}"})
+File ".../multiprocessing/connection.py", line 289, in _send_bytes
+    ov, err = _winapi.WriteFile(self._handle, buf, overlapped=True)
+BrokenPipeError: [WinError 232] The pipe is being closed
+```
+
+followed by thousands of lines of
+
+```
+File ".../joblib/externals/loky/backend/resource_tracker.py", line 386, in main
+    del cache[rtype][name]
+KeyError: 'C:\\Users\\...\\Temp\\joblib_memmapping_folder_5948_..._...'
+```
+
+**Root cause, in two layers:**
+
+1. **The underlying trigger** is a known class of joblib/loky bug on
+   long-running Windows processes that create and tear down many
+   `Parallel(n_jobs=-1)` executors in the same process lifetime.
+   `lightgbm`'s tuning is `repeated_kfold_cv_detailed` (25 outer folds under
+   P1's full 5x5 CV) each doing its own `RandomizedSearchCV(n_jobs=-1)` fit
+   -- so a single (dataset, model) subprocess can spin up ~25+ separate
+   loky executors and memmapping temp folders back to back. Eventually the
+   background resource-tracker process's bookkeeping for these desyncs
+   (two cleanup paths racing to remove the same temp-folder cache entry) and
+   it raises an uncaught `KeyError` deleting an entry that's already gone.
+   That, in turn, made one of the in-flight `RandomizedSearchCV` fits see a
+   `TerminatedWorkerError` (its executor's worker was killed as a side
+   effect). This part is upstream joblib/loky behavior, not a bug unique to
+   this repo, and is not fully fixed here -- see point 2 for why it no longer
+   matters as much.
+2. **The bug that let it take down the entire run** was ours, in
+   `src/ei_model/experiments/runner.py`. Every model already runs in its
+   own subprocess with a hard timeout specifically so a hang or crash can't
+   block the rest of the sequence (see "Runtime stall" above) -- but the
+   crash-reporting path had a gap. `_model_worker` catches the
+   `TerminatedWorkerError` and tries to report it back over the pipe with
+   `conn.send(...)`; here, that `send` itself raised a *second*, unrelated
+   `BrokenPipeError` (the pipe was already closing). That secondary
+   exception was never caught, so the child process died with a truncated,
+   partially-written frame still in the pipe buffer. Back in the parent,
+   `_run_model_scored`'s pipe-read logic was:
+   ```python
+   if parent_conn.poll():
+       try:
+           return parent_conn.recv()
+       except EOFError:
+           return {"status": "error", "reason": "worker closed its pipe without a result"}
+   ```
+   `parent_conn.recv()` on a truncated frame does not necessarily raise
+   `EOFError` -- it can raise other exceptions depending on exactly where
+   the write was cut off (a `ConnectionResetError`/`OSError`, or a pickle
+   error). Since only `EOFError` was caught, that exception propagated
+   straight out of `_run_model_scored`, out of `run_config`'s per-model
+   loop, and killed the entire protocol run. This is the actual, precise,
+   code-verifiable cause of "one model's crash took down the whole 103-minute
+   run" -- the timeout/subprocess isolation was already correct in spirit,
+   this one `except` clause just wasn't broad enough to catch every way a
+   crashed child can fail to hand back a clean result.
+
+**Fix** (`src/ei_model/experiments/runner.py`):
+- `_model_worker`'s own `conn.send(...)` inside its except-block is now
+  itself wrapped in a `try/except: pass` -- if the pipe is already gone,
+  there is nothing more the worker can do; exiting non-zero is enough,
+  since the parent already treats "child died without sending a result" as
+  its own error outcome.
+- The parent-side read (now `_run_model_scored_once`) catches any
+  `Exception` from `parent_conn.recv()`, not just `EOFError`, and reports
+  it as a normal `{"status": "error", ...}` outcome instead of letting it
+  propagate.
+- **New retry-once wrapper** `_run_model_scored` calls
+  `_run_model_scored_once` and, if the outcome is `"error"` (a crash --
+  not `"timeout"` or `"unavailable"`, which retrying can't fix), retries
+  exactly once in a brand-new subprocess before giving up. A fresh
+  subprocess means a fresh resource tracker, which is exactly the reset
+  that gives this class of transient loky race a real chance of not
+  recurring. `max_retries=1` by default.
+- **Belt-and-suspenders**: `run_config`'s per-model loop now also wraps the
+  call to `_run_model_scored` itself in a `try/except Exception`, so any
+  *other*, still-unforeseen failure in the parent-side subprocess/pipe
+  bookkeeping (which is OS-level code, not something this harness fully
+  controls) can never again take down the rest of a multi-hour run -- it's
+  recorded as an `unavailable`/error row for that one model and the
+  sequence continues.
+- Regression tests added in `tests/test_experiments_runner.py`: a fake
+  `mp.get_context`/`Process`/`Connection` reproduces the exact "child
+  crashed, `recv()` raises something other than `EOFError`" scenario
+  without needing a real loky race, plus tests for the retry-once behavior,
+  giving up after the retry, and the `run_config`-level safety net.
+
+**Consequence for P1's numbers**: `p1_diff`'s `lightgbm`, `improved_ann`,
+`stacking`, and `crowd` rows were never scored in the run that crashed;
+`p1_after`/`p1_before` (fully scored) and `p1_diff`'s first 6 models
+(already checkpointed) survived. P1 was re-run in full under the fixed
+code to fill in the rest -- see the Results section for the final numbers
+and whether the crash recurred (it should now show as at most a logged
+retry, never a dead run).
+
 ## The MATLAB crowd baseline, for context
 
 Independent of this harness's own `crowd` model hook (not runnable yet, see

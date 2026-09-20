@@ -1,6 +1,9 @@
+from unittest.mock import MagicMock
+
 import pytest
 
 from ei_model.experiments import models as m
+from ei_model.experiments import runner as ei_runner
 from ei_model.experiments.config import CvConfig, RunConfig
 from ei_model.experiments.models import ModelSpec
 from ei_model.experiments.runner import run_config
@@ -84,6 +87,154 @@ def test_crowd_is_registered_and_available():
     spec = m.build_model_spec("crowd", seed=0)
     assert spec.available is True
     assert spec.fit_predict is not None
+
+
+class _FakeProc:
+    """Stands in for `multiprocessing.Process`: already finished, never alive."""
+
+    def __init__(self, exitcode: int = 1):
+        self.pid = 4242
+        self.exitcode = exitcode
+
+    def start(self) -> None:
+        pass
+
+    def join(self, timeout=None) -> None:
+        pass
+
+    def is_alive(self) -> bool:
+        return False
+
+
+class _FakeConn:
+    def __init__(self, recv_exc: Exception | None = None, recv_value=None):
+        self._recv_exc = recv_exc
+        self._recv_value = recv_value
+
+    def poll(self) -> bool:
+        return True
+
+    def recv(self):
+        if self._recv_exc is not None:
+            raise self._recv_exc
+        return self._recv_value
+
+    def close(self) -> None:
+        pass
+
+
+class _FakeCtx:
+    """Stands in for `mp.get_context("spawn")` so tests never spawn a real
+    subprocess -- fast, deterministic, and lets us simulate the exact
+    "child crashed and the pipe read raised something other than
+    EOFError" scenario found 2026-09-20 (see docs/experiments.md
+    "Resource-tracker crash") without needing a real loky race to occur."""
+
+    def __init__(self, parent_conn):
+        self._parent_conn = parent_conn
+
+    def Pipe(self, duplex=False):
+        return self._parent_conn, MagicMock()
+
+    def Process(self, target, args):
+        return _FakeProc()
+
+
+def _fake_dataset():
+    return MagicMock(X=None, y=None)
+
+
+def test_run_model_scored_once_survives_non_eof_recv_failure(monkeypatch):
+    # Regression test for the crash that killed P1's `replication.yaml` run
+    # ~103 minutes in (results/logs/replication.log): a worker crashed
+    # while already handling a joblib/loky resource-tracker exception, its
+    # own attempt to report that back over the pipe raised a *second*
+    # exception (a broken pipe mid-write), and the parent's `recv()` then
+    # raised something other than `EOFError` (simulated here directly).
+    # The old code only caught `EOFError` there, so this propagated out of
+    # the whole run. It must now come back as a plain "error" outcome.
+    fake_conn = _FakeConn(recv_exc=ConnectionResetError("simulated broken pipe on recv"))
+    monkeypatch.setattr(ei_runner.mp, "get_context", lambda name: _FakeCtx(fake_conn))
+
+    outcome = ei_runner._run_model_scored_once(
+        _fake_dataset(), "lightgbm", seed=0, spec_kwargs={},
+        cv=CvConfig(n_splits=3, n_repeats=1), timeout_seconds=60, logger=lambda _msg: None,
+    )
+
+    assert outcome["status"] == "error"
+    assert (
+        "ConnectionResetError" in outcome["reason"]
+        or "simulated broken pipe" in outcome["reason"]
+    )
+
+
+def test_run_model_scored_retries_once_after_a_crash(monkeypatch):
+    # `_run_model_scored` (the retry wrapper) must retry a crashed attempt
+    # exactly once, in a fresh subprocess, and succeed if the retry works --
+    # this is the "catch, log, retry that model once, continue" behavior
+    # requested after the resource-tracker crash (docs/experiments.md).
+    calls = {"n": 0}
+
+    def _fake_once(dataset, model_key, seed, spec_kwargs, cv, timeout_seconds, logger):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"status": "error", "reason": "simulated first-attempt crash"}
+        return {"status": "ok", "summary": "fake-summary", "scores": []}
+
+    monkeypatch.setattr(ei_runner, "_run_model_scored_once", _fake_once)
+
+    outcome = ei_runner._run_model_scored(
+        _fake_dataset(), "lightgbm", seed=0, spec_kwargs={},
+        cv=CvConfig(n_splits=3, n_repeats=1), timeout_seconds=60, logger=lambda _msg: None,
+    )
+
+    assert calls["n"] == 2
+    assert outcome["status"] == "ok"
+
+
+def test_run_model_scored_gives_up_after_max_retries(monkeypatch):
+    calls = {"n": 0}
+
+    def _always_crashes(dataset, model_key, seed, spec_kwargs, cv, timeout_seconds, logger):
+        calls["n"] += 1
+        return {"status": "error", "reason": "simulated persistent crash"}
+
+    monkeypatch.setattr(ei_runner, "_run_model_scored_once", _always_crashes)
+
+    outcome = ei_runner._run_model_scored(
+        _fake_dataset(), "lightgbm", seed=0, spec_kwargs={},
+        cv=CvConfig(n_splits=3, n_repeats=1), timeout_seconds=60, logger=lambda _msg: None,
+        max_retries=1,
+    )
+
+    assert calls["n"] == 2  # one attempt + one retry, not an infinite loop
+    assert outcome["status"] == "error"
+
+
+def test_run_config_survives_a_crashing_model_and_continues(data_dir, monkeypatch):
+    # End-to-end version of the same regression: even if `_run_model_scored`
+    # itself somehow raises (the belt-and-suspenders case in `run_config`'s
+    # loop), the whole protocol run must not die -- it should record that
+    # one model as unavailable/error and keep scoring the rest.
+    def _boom(*args, **kwargs):
+        raise RuntimeError("simulated unexpected subprocess-management failure")
+
+    monkeypatch.setattr(ei_runner, "_run_model_scored", _boom)
+
+    config = RunConfig(
+        name="test_crash_resilience",
+        protocol="P2",
+        variants=["after"],
+        models=["mean", "ridge"],
+        cv=CvConfig(n_splits=3, n_repeats=1),
+        paired_baseline="mean",
+    )
+    results, _ = run_config(config, data_dir=str(data_dir), logger=lambda _msg: None)
+
+    assert {res.model_key for res in results} == {"mean", "ridge"}
+    assert all(res.available is False for res in results)
+    assert all("simulated unexpected subprocess-management failure" in res.unavailable_reason
+                for res in results)
 
 
 def test_run_config_p1_multiple_variants(data_dir):
