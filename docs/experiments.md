@@ -461,3 +461,24 @@ for the configured `importance_model`, `results/<name>_importance.csv` /
 `results/figures/<name>_importance.png` (permutation importance summed by
 feature family, on the best-scoring dataset for that model). Every one of
 those artifacts is an aggregate; see the top of this document.
+
+## Resuming a partial run
+
+Add `--resume` to any of the commands above (e.g.
+`python -m ei_model.experiments run --config configs/replication.yaml --resume`)
+to skip any `(dataset, model)` pair already present in that config's
+`results/<name>.csv` instead of recomputing it -- exactly what a crashed or
+interrupted run (like the one in "Resource-tracker crash" above) needs to
+finish without burning CPU on models that already have a real, checkpointed
+score. Without `--resume` (the default), a re-run always starts from
+scratch and overwrites the existing CSV, same as before this flag existed.
+
+One accuracy trade-off: the paired baseline-vs-challenger comparison
+(`vs_baseline_*` columns) needs the baseline model's *fold-level* scores,
+which aren't saved in the CSV (only the aggregate mean/sd is) -- so if a
+dataset's baseline row (usually `original_ann`) was itself one of the
+carried-over, not-recomputed rows, newly scored models for that dataset get
+`vs_baseline_*` left blank rather than a real paired comparison. The R^2 /
+RMSE / MAE numbers themselves are unaffected either way. This is checked
+directly in `tests/test_experiments_runner.py::test_run_config_resume_skips_already_recorded_pairs`
+and `tests/test_experiments_cli.py::test_cli_run_resume_keeps_existing_rows_and_adds_a_new_model`.

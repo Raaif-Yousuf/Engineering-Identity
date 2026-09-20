@@ -237,6 +237,52 @@ def test_run_config_survives_a_crashing_model_and_continues(data_dir, monkeypatc
                 for res in results)
 
 
+def test_run_config_resume_skips_already_recorded_pairs(data_dir):
+    # Regression test for the resume capability added so a crashed/partial
+    # run (e.g. P1's replication.yaml crash, docs/experiments.md
+    # "Resource-tracker crash") never has to recompute rows a previous
+    # attempt already checkpointed to CSV.
+    config = RunConfig(
+        name="test_resume",
+        protocol="P2",
+        variants=["after"],
+        models=["mean", "ridge", "random_forest"],
+        cv=CvConfig(n_splits=3, n_repeats=1),
+        paired_baseline="mean",
+    )
+    first_results, _ = run_config(config, data_dir=str(data_dir), logger=lambda _msg: None)
+    # Simulate "only mean and ridge finished before the crash" by keeping
+    # just those two rows as the checkpoint to resume from.
+    carried_over = [r for r in first_results if r.model_key in ("mean", "ridge")]
+
+    calls = []
+    real_run_model_scored_once = ei_runner._run_model_scored_once
+
+    def _spy_once(dataset, model_key, seed, spec_kwargs, cv, timeout_seconds, logger):
+        calls.append(model_key)
+        return real_run_model_scored_once(
+            dataset, model_key, seed, spec_kwargs, cv, timeout_seconds, logger
+        )
+
+    with pytest.MonkeyPatch.context() as mp_ctx:
+        mp_ctx.setattr(ei_runner, "_run_model_scored_once", _spy_once)
+        results, _ = run_config(
+            config,
+            data_dir=str(data_dir),
+            logger=lambda _msg: None,
+            existing_results=carried_over,
+        )
+
+    # Only the model missing from the checkpoint should have actually run.
+    assert calls == ["random_forest"]
+    assert {r.model_key for r in results} == {"mean", "ridge", "random_forest"}
+    # The carried-over rows are the exact same objects/values, not recomputed.
+    resumed_ridge = next(r for r in results if r.model_key == "ridge")
+    original_ridge = next(r for r in first_results if r.model_key == "ridge")
+    assert resumed_ridge.r2_mean == original_ridge.r2_mean
+    assert resumed_ridge.fit_seconds == original_ridge.fit_seconds
+
+
 def test_run_config_p1_multiple_variants(data_dir):
     config = RunConfig(
         name="test_p1",

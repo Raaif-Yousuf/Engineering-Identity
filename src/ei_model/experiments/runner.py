@@ -241,6 +241,7 @@ def run_config(
     data_dir: str | None = None,
     logger: RunLogger = print,
     on_result: ResultsCallback | None = None,
+    existing_results: list[ModelResult] | None = None,
 ) -> tuple[list[ModelResult], dict[str, dict[str, list[FoldScore]]]]:
     """Run every model in `config.models` on every dataset of `config.protocol`.
 
@@ -255,11 +256,27 @@ def run_config(
     docs/experiments.md "Runtime stall" for why this matters: a run that
     hangs on model N used to lose every model before it too, since the CSV
     was previously written only once at the very end).
+
+    If `existing_results` is given (typically loaded from a previous,
+    partial run's checkpointed CSV via `reporting.read_results_csv`), any
+    (dataset_key, model_key) pair already present in it is *not*
+    recomputed -- its row is carried over as-is and reported again via
+    `on_result` so the checkpoint file stays complete. This is what lets a
+    crashed or interrupted run resume instead of starting from scratch (see
+    docs/experiments.md "Resuming a partial run"). One consequence: if the
+    protocol's `paired_baseline` model was itself one of the carried-over
+    (not recomputed) rows for a dataset, this run has no fold-level scores
+    for it, so `vs_baseline_*` is left at its default (None/0) for every
+    *newly* scored model on that dataset -- the aggregate R^2/RMSE/MAE
+    numbers are unaffected, only the paired Wilcoxon comparison is skipped
+    for that dataset in that resumed run.
     """
     resolved_data_dir = data_dir or config.data_dir
     datasets = pr.build_all(config.protocol, config.variants, data_dir=resolved_data_dir)
 
-    results: list[ModelResult] = []
+    already_done = {(r.dataset_key, r.model_key): r for r in (existing_results or [])}
+
+    results: list[ModelResult] = list(already_done.values())
     fold_scores: dict[str, dict[str, list[FoldScore]]] = {}
 
     for dataset in datasets:
@@ -279,6 +296,13 @@ def run_config(
             model_keys.insert(0, config.paired_baseline)
 
         for model_key in model_keys:
+            if (dataset.key, model_key) in already_done:
+                _log(
+                    logger,
+                    f"  {model_key}: already recorded in a previous run -- skipping (resume)",
+                )
+                continue
+
             spec_kwargs: dict = {}
             if model_key in ("xgboost", "lightgbm"):
                 spec_kwargs = {"n_iter": config.tuning.n_iter, "inner_cv": config.tuning.inner_cv}
