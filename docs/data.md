@@ -53,9 +53,9 @@ subset:
 
 | Variant | `-CM` rows (== canonical `partial`) | `+CM` source rows | Participant-code mismatches |
 |---|---:|---:|---|
-| after  | 1789 | 1076 | 1 code (`LL04LO12`) appears twice in `+CM` with conflicting values (different `Year`); both rows dropped as ambiguous -> 1074 usable |
+| after  | 1789 | 1076 | 1 participant code appears twice in `+CM` with conflicting values (different `Year`); both rows dropped as ambiguous -> 1074 usable |
 | before | 1929 | 1284 | none |
-| diff   | 1012 |  479 | 1 code (`on18na61`) only matched after case-normalizing to `ON18NA61`; recovered, 0 rows dropped -> 479 usable |
+| diff   | 1012 |  479 | 1 participant code only matched after case-normalizing; recovered, 0 rows dropped -> 479 usable |
 
 Rather than left-joining concept-map columns into the full cohort (which
 would make `concept_map` ~35-53% NaN inside a single table), each variant is
