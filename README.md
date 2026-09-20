@@ -11,7 +11,24 @@ The original numbers were never reproducible: the MATLAB result that ended up in
 - **Seven of the input columns are part of the score being predicted.** They are the survey's own identity items. Adding them up, with no model at all, already explains a third of the variance. Every model here is therefore run twice, with and without them.
 - **The honest version of the task is prediction, not fitting**: start-of-semester answers predicting the end-of-semester score.
 
-Results land in [`docs/experiments.md`](docs/experiments.md) as they finish.
+## Results
+
+| Protocol | Best model | R^2 (best) | original_ann R^2 |
+|---|---|---:|---:|
+| P1 replication (includes proxy items) | stacking | 0.417 +/- 0.040 (p1_after) | 0.281 +/- 0.027 |
+| P2 no proxy items (honest, leakage-free) | stacking | 0.294 +/- 0.030 (p2_after) | 0.186 +/- 0.029 |
+| P3 true prediction (before -> after) | stacking | 0.115 +/- 0.051 | -0.018 +/- 0.079 |
+| P3b persistence baseline (+ before EI) | elastic_net | 0.288 +/- 0.049 | 0.136 +/- 0.065 |
+| P4 complete subset (concept-map cohort) | xgboost | 0.133 +/- 0.045 (best dataset) | -0.011 +/- 0.059 |
+
+The MATLAB "wisdom of the crowd" baseline scores R^2 = 0.140 (train) /
+**-0.075 (held out)** -- not directly comparable to the numbers above (see
+[`docs/experiments.md`](docs/experiments.md) for why). This repo's own
+Python port of that model could only be run to completion on 3 of the 8
+datasets it was pointed at; see the same doc for the measured cost of
+running it at full scale.
+
+Full tables, methodology, and every caveat: [`docs/experiments.md`](docs/experiments.md).
 
 ## Data
 
