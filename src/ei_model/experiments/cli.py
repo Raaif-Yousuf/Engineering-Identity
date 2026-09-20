@@ -7,7 +7,12 @@ from pathlib import Path
 
 from . import protocols as pr
 from .config import load_config
-from .reporting import permutation_importance_by_family, plot_r2_bars, write_results_csv
+from .reporting import (
+    permutation_importance_by_family,
+    plot_r2_bars,
+    read_results_csv,
+    write_results_csv,
+)
 from .runner import run_config
 
 
@@ -68,10 +73,25 @@ def cmd_run(args: argparse.Namespace) -> int:
         # stall" for the run this was written in response to).
         write_results_csv(results_so_far, results_csv)
 
+    existing_results = None
+    if args.resume:
+        existing_results = read_results_csv(results_csv)
+        if existing_results:
+            logger(
+                f"Resuming '{config.name}': {len(existing_results)} (dataset, model) rows "
+                f"already recorded in {results_csv} will not be recomputed."
+            )
+        else:
+            logger(f"--resume given but {results_csv} has no rows yet -- running from scratch.")
+
     start = time.perf_counter()
     logger(f"Running config '{config.name}' (protocol {config.protocol})")
     results, fold_scores = run_config(
-        config, data_dir=args.data_dir, logger=logger, on_result=checkpoint
+        config,
+        data_dir=args.data_dir,
+        logger=logger,
+        on_result=checkpoint,
+        existing_results=existing_results,
     )
     elapsed = time.perf_counter() - start
     logger(f"Done in {elapsed:.1f}s, {len(results)} (dataset, model) results.")
@@ -122,6 +142,14 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--config", required=True, help="Path to a configs/<name>.yaml file.")
     run_parser.add_argument("--data-dir", default=None, help="Override EI_DATA_DIR for this run.")
     run_parser.add_argument("--out", default=None, help="Override the results CSV output path.")
+    run_parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Skip (dataset, model) pairs already present in the results CSV from a previous "
+            "run instead of recomputing them (see docs/experiments.md 'Resuming a partial run')."
+        ),
+    )
     run_parser.set_defaults(func=cmd_run)
 
     return parser

@@ -21,6 +21,57 @@ def write_results_csv(results: list[ModelResult], path: str | Path) -> pd.DataFr
     return df
 
 
+_MODEL_RESULT_BOOL_FIELDS = ("available",)
+_MODEL_RESULT_INT_FIELDS = ("n_rows", "n_features", "n_folds", "vs_baseline_n_folds")
+_MODEL_RESULT_OPTIONAL_FLOAT_FIELDS = (
+    "r2_mean",
+    "r2_std",
+    "rmse_mean",
+    "rmse_std",
+    "mae_mean",
+    "mae_std",
+    "vs_baseline_fraction_improved",
+    "vs_baseline_wilcoxon_p",
+)
+
+
+def read_results_csv(path: str | Path) -> list[ModelResult]:
+    """Reload a previously checkpointed `results/<name>.csv` as `ModelResult`s.
+
+    Used to resume a run without recomputing (dataset, model) pairs already
+    scored in an earlier attempt -- see `runner.run_config`'s `existing`
+    parameter. Returns `[]` if `path` doesn't exist yet (nothing to resume
+    from). `unavailable_reason`/`vs_baseline_*` may come back as NaN from a
+    round-tripped CSV (pandas reads an empty cell as NaN, not ""), so those
+    are normalized back to the same defaults `ModelResult` itself uses.
+    """
+    path = Path(path)
+    if not path.exists():
+        return []
+    df = pd.read_csv(path)
+    if df.empty:
+        return []
+
+    records = df.to_dict(orient="records")
+    results = []
+    for rec in records:
+        kwargs = dict(rec)
+        for field in _MODEL_RESULT_BOOL_FIELDS:
+            kwargs[field] = bool(kwargs.get(field))
+        for field in _MODEL_RESULT_INT_FIELDS:
+            value = kwargs.get(field)
+            kwargs[field] = 0 if pd.isna(value) else int(value)
+        for field in _MODEL_RESULT_OPTIONAL_FLOAT_FIELDS:
+            value = kwargs.get(field)
+            kwargs[field] = None if pd.isna(value) else float(value)
+        fit_seconds = kwargs.get("fit_seconds")
+        kwargs["fit_seconds"] = 0.0 if pd.isna(fit_seconds) else float(fit_seconds)
+        reason = kwargs.get("unavailable_reason")
+        kwargs["unavailable_reason"] = "" if pd.isna(reason) else str(reason)
+        results.append(ModelResult(**kwargs))
+    return results
+
+
 def plot_r2_bars(
     results: list[ModelResult],
     protocol: str,
