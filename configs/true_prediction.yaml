@@ -1,6 +1,17 @@
 # P3 "true prediction": before-semester features (excluding the identity
 # block) predicting after-semester ei, joined by pid. The only protocol here
 # with a genuine temporal gap between features and target.
+# Deviation added mid-session (2026-09-20): lightgbm dropped from this
+# config's models list. Trigger: P1's first dataset (p1_after, 1789 rows)
+# showed xgboost and lightgbm both tuned in ~380s each after the
+# nested-n_jobs fix (docs/experiments.md "Runtime stall"), and P1/P2 x 3
+# variants + P3/P3b + P4 at that per-dataset cost projected past the ~4h
+# wall-clock budget once crowd (now merged, real per-dataset cost) was
+# added in. xgboost and lightgbm are both tuned gradient-boosted trees
+# answering the same question, so lightgbm is cut here and in P2/P3/P3b;
+# xgboost (already the importance_model) is kept. Not applied to P1,
+# which had already started under the pre-cut config when this decision
+# was made -- P1 keeps lightgbm for all 3 of its variants.
 name: true_prediction
 protocol: P3
 variants: [before_to_after]  # ignored by build_all(P3); single joined dataset
@@ -11,7 +22,6 @@ models:
   - elastic_net
   - random_forest
   - xgboost
-  - lightgbm
   - original_ann
   - improved_ann
   - stacking
@@ -27,11 +37,14 @@ ann_cv:
   n_repeats: 1
   random_state: 42
 
-improved_ann_n_seeds: 3
+improved_ann_n_seeds: 1
 
 tuning:
-  n_iter: 15
+  n_iter: 8
   inner_cv: 3
+
+crowd_replications: 1
+model_timeout_seconds: 1200
 
 random_state: 42
 paired_baseline: original_ann

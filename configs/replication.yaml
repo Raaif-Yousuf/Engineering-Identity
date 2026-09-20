@@ -33,11 +33,14 @@ ann_cv:
   n_repeats: 1
   random_state: 42
 
-improved_ann_n_seeds: 3
+improved_ann_n_seeds: 1
 
 tuning:
-  n_iter: 15
+  n_iter: 8
   inner_cv: 3
+
+crowd_replications: 1
+model_timeout_seconds: 1200
 
 random_state: 42
 paired_baseline: original_ann

@@ -60,9 +60,19 @@ def cmd_run(args: argparse.Namespace) -> int:
     def logger(message: str) -> None:
         print(message, flush=True)
 
+    def checkpoint(results_so_far) -> None:
+        # Writes the whole (small) results-so-far table after every single
+        # model finishes, not just once at the end -- so a kill, crash, or
+        # a model that hits `model_timeout_seconds` never loses the rows
+        # already scored before it (see docs/experiments.md "Runtime
+        # stall" for the run this was written in response to).
+        write_results_csv(results_so_far, results_csv)
+
     start = time.perf_counter()
     logger(f"Running config '{config.name}' (protocol {config.protocol})")
-    results, fold_scores = run_config(config, data_dir=args.data_dir, logger=logger)
+    results, fold_scores = run_config(
+        config, data_dir=args.data_dir, logger=logger, on_result=checkpoint
+    )
     elapsed = time.perf_counter() - start
     logger(f"Done in {elapsed:.1f}s, {len(results)} (dataset, model) results.")
 
