@@ -1,8 +1,8 @@
 # Engineering Identity
 
-Predicts a first-year engineering student's composite Engineering Identity score (-50 to +50) from a start- and end-of-semester survey, three written definitions of an engineer, and a hand-drawn concept map turned into 29 graph-complexity metrics.
+Predicts an engineering student's composite Engineering Identity score (-50 to +50) from a start- and end-of-semester survey, three written definitions of an engineer, and a hand-drawn concept map turned into 29 graph-complexity metrics.
 
-It rebuilds a study I worked on at UT Dallas, Aug 2024 to Jun 2025, roughly 1,900 students, so the results can be reproduced and checked against the original pipeline instead of just cited.
+It rebuilds a study I worked on at UT Dallas, Aug 2024 to Jun 2025, covering engineering students across all four years: about 5,500 answered the start-of-semester survey and about 3,500 the end-of-semester one, and after cleaning the modelling tables hold 1,929 students at the start, 1,789 at the end and 1,012 with both. The point of the rebuild is that the results can be reproduced and checked against the original pipeline instead of just cited.
 
 ![R^2 by protocol: best model vs. the original ANN, across the replication, no-leakage, and true-prediction protocols](docs/r2-by-protocol.png)
 
